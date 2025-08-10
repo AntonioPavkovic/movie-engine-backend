@@ -1,0 +1,48 @@
+{
+  "settings": {
+    "analysis": {
+      "tokenizer": {
+        "edge_ngram_tokenizer": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20,
+          "token_chars": ["letter", "digit"]
+        }
+      },
+      "analyzer": {
+        "edge_ngram_analyzer": {
+          "tokenizer": "edge_ngram_tokenizer",
+          "filter": ["lowercase"]
+        },
+        "english_analyzer": {
+          "type": "standard",
+          "stopwords": "_english_"
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "id": { "type": "integer" },
+      "title": {
+        "type": "text",
+        "analyzer": "english_analyzer",
+        "fields": { "edge": { "type": "text", "analyzer": "edge_ngram_analyzer" }, "keyword": { "type": "keyword" } }
+      },
+      "description": { "type": "text", "analyzer": "english_analyzer" },
+      "cast": { "type": "text", "analyzer": "english_analyzer", "fields": { "keyword": { "type": "keyword" } } },
+      "castObjects": {
+        "type": "nested",
+        "properties": {
+          "name": { "type": "text", "analyzer": "english_analyzer", "fields": { "keyword": { "type": "keyword" } } },
+          "role": { "type": "text", "analyzer": "english_analyzer" }
+        }
+      },
+      "releaseDate": { "type": "date" },
+      "type": { "type": "keyword" },
+      "avgRating": { "type": "float" },
+      "ratingsCount": { "type": "integer" },
+      "coverUrl": { "type": "keyword" }
+    }
+  }
+}

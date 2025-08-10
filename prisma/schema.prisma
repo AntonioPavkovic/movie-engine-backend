@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Movie {
+  id           Int         @id @default(autoincrement())
+  title        String
+  description  String
+  coverUrl     String?
+  releaseDate  DateTime
+  type         MovieType
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  ratings      Rating[]
+  avgRating    Float       @default(0.0)
+  ratingsCount Int         @default(0)
+  casts        MovieCast[]
+}
+
+model Actor {
+  id        Int         @id @default(autoincrement())
+  name      String
+  createdAt DateTime    @default(now())
+  casts     MovieCast[]
+}
+
+model MovieCast {
+  id       Int    @id @default(autoincrement())
+  movie    Movie  @relation(fields: [movieId], references: [id])
+  movieId  Int
+  actor    Actor  @relation(fields: [actorId], references: [id])
+  actorId  Int
+  role     String?
+}
+
+model Rating {
+  id        Int      @id @default(autoincrement())
+  movie     Movie    @relation(fields: [movieId], references: [id])
+  movieId   Int
+  stars     Int      // 1..5
+  createdAt DateTime @default(now())
+  sourceId  String?  @unique
+}
+
+
+enum MovieType {
+  MOVIE
+  TV_SHOW
+}
