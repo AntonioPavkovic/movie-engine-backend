@@ -58,24 +58,20 @@ export class MoviesService {
     };
   }
 
-  // Main search method that handles both text search and filters
   async searchMovies(searchDto: SearchMovieDTO) {
     const { query, type = MovieType.MOVIE, page = 0, limit = 10 } = searchDto;
 
-    // If no search query or query is too short, get top rated movies from database
     if (!query || query.trim().length < 2) {
       return this.getTopRatedMovies(type, page, limit);
     }
 
-    // Use OpenSearch for complex queries
     const searchResults = await this.searchService.searchMovies(
       query.trim(),
-      type, // This will be 'MOVIE' or 'TV_SHOW'
+      type,
       page,
       limit
     );
 
-    // Get full movie details from database using the IDs from search results
     const movieIds = searchResults.hits.map(hit => parseInt(hit.id));
     
     if (movieIds.length === 0) {
@@ -88,7 +84,7 @@ export class MoviesService {
       };
     }
 
-    // Fetch full movie data from database
+
     const movies = await this.prisma.movie.findMany({
       where: {
         id: { in: movieIds },
@@ -100,14 +96,13 @@ export class MoviesService {
         },
         ratings: {
           select: { 
-            stars: true, // Changed from 'rating' to 'stars'
+            stars: true, 
             createdAt: true 
           }
         }
       }
     });
 
-    // Maintain the search result order (sorted by relevance and rating)
     const orderedMovies = movieIds
       .map(id => movies.find(movie => movie.id === id))
       .filter(Boolean);
