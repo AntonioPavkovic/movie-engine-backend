@@ -155,7 +155,6 @@ export class RatingService {
   }
 
   async getMovieRatingStats(movieId: number): Promise<MovieRatingStatsDto> {
-    // Try to get from Redis cache first
     const cacheKey = `movie:${movieId}:stats`;
     const cached = await this.redis.get(cacheKey);
     
@@ -163,7 +162,6 @@ export class RatingService {
       return JSON.parse(cached);
     }
 
-    // Get movie with ratings
     const movie = await this.prisma.movie.findUnique({
       where: { id: movieId },
       include: {
@@ -201,13 +199,11 @@ export class RatingService {
       ratingDistribution,
     };
 
-    // Cache for 5 minutes
     await this.redis.setex(cacheKey, 300, JSON.stringify(stats));
 
     return stats;
   }
 
-  // Get user's existing rating for a movie (if any)
   async getUserRatingForMovie(movieId: number, sourceId: string): Promise<RatingResponseDto | null> {
     if (!sourceId) {
       return null;
@@ -233,23 +229,21 @@ export class RatingService {
     };
   }
 
-  // Create or update rating (upsert-like behavior)
   async createOrUpdateRating(createRatingDto: CreateRatingDto): Promise<RatingResponseDto> {
     const { movieId, stars, sourceId } = createRatingDto;
 
     if (!sourceId) {
-      // If no sourceId, just create a new rating
       return this.createRating(createRatingDto);
     }
 
-    // Check for existing rating
+
     const existingRating = await this.getUserRatingForMovie(movieId, sourceId);
 
     if (existingRating) {
-      // Update existing rating
+  
       return this.updateRating(existingRating.id, stars, sourceId);
     } else {
-      // Create new rating
+
       return this.createRating(createRatingDto);
     }
   }
@@ -309,7 +303,6 @@ export class RatingService {
     };
 
     try {
-      // Publish to Redis stream
       await this.redis.xadd(
         'rating-events',
         '*',
@@ -318,7 +311,6 @@ export class RatingService {
       );
     } catch (error) {
       console.error('Failed to publish rating event:', error);
-      // Don't throw - rating was successful, event publishing is secondary
     }
   }
 }

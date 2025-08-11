@@ -5,14 +5,6 @@ import { SearchMovieDTO } from './dto/search_movie.dto';
 import { ContentType } from 'src/common/enums/movie-types';
 import { MovieType } from '@prisma/client';
 
-interface FixRatingResult {
-  movieId: number;
-  title: string;
-  ratingsCount?: number;
-  avgRating?: number;
-  status: 'fixed' | 'error';
-  error?: string;
-}
 
 @Injectable()
 export class MoviesService {
