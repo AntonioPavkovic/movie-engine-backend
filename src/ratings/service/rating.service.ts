@@ -1,17 +1,56 @@
-// services/rating.service.ts (Enhanced for your schema)
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import { RedisService } from 'src/redis/redis.service';
 import { CreateRatingDto } from '../dto/rating.dto';
 import { MovieRatingStatsDto } from '../dto/movie-rating-stats.dto';
 import { RatingResponseDto } from '../dto/rating-response.dto';
+import { SearchService } from 'src/search/search.service';
 
 @Injectable()
 export class RatingService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private searchService: SearchService,
   ) {}
+
+  async createAnonymousRating(data: {
+    movieId: number;
+    stars: number;
+    userIp?: string;
+  }): Promise<RatingResponseDto> {
+    const { movieId, stars } = data;
+
+    const movie = await this.prisma.movie.findUnique({
+      where: { id: movieId },
+    });
+
+    if (!movie) {
+      throw new BadRequestException('Movie not found');
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const rating = await tx.rating.create({
+        data: {
+          movieId,
+          stars
+        },
+      });
+
+      await this.updateMovieAggregates(tx, movieId);
+
+      return rating;
+    });
+
+    await this.publishRatingEvent(movieId, stars, 'CREATE');
+
+    return {
+      id: result.id,
+      movieId: result.movieId,
+      stars: result.stars,
+      createdAt: result.createdAt,
+    };
+  }
 
   async createRating(createRatingDto: CreateRatingDto): Promise<RatingResponseDto> {
     const { movieId, stars, sourceId } = createRatingDto;
@@ -24,7 +63,6 @@ export class RatingService {
       throw new BadRequestException('Movie not found');
     }
 
-    // Check if this sourceId already rated this movie
     if (sourceId) {
       const existingRating = await this.prisma.rating.findFirst({
         where: {
@@ -38,9 +76,8 @@ export class RatingService {
       }
     }
 
-    // Use transaction to create rating and update movie stats
     const result = await this.prisma.$transaction(async (tx) => {
-      // Create the rating
+  
       const rating = await tx.rating.create({
         data: {
           movieId,
@@ -49,13 +86,11 @@ export class RatingService {
         },
       });
 
-      // Update movie aggregate fields
       await this.updateMovieAggregates(tx, movieId);
 
       return rating;
     });
 
-    // Publish to Redis stream for real-time recalculation
     await this.publishRatingEvent(movieId, stars, 'CREATE');
 
     return {
@@ -76,28 +111,23 @@ export class RatingService {
       throw new BadRequestException('Rating not found');
     }
 
-    // Verify ownership if sourceId is provided
     if (sourceId && existingRating.sourceId !== sourceId) {
       throw new BadRequestException('Not authorized to update this rating');
     }
 
     const oldStars = existingRating.stars;
 
-    // Use transaction to update rating and movie stats
     const result = await this.prisma.$transaction(async (tx) => {
-      // Update the rating
       const updatedRating = await tx.rating.update({
         where: { id: ratingId },
         data: { stars },
       });
 
-      // Update movie aggregate fields
       await this.updateMovieAggregates(tx, existingRating.movieId);
 
       return updatedRating;
     });
 
-    // Publish update event
     await this.publishRatingEvent(existingRating.movieId, stars, 'UPDATE', oldStars);
 
     return {
@@ -224,7 +254,6 @@ export class RatingService {
     }
   }
 
-  // Update movie aggregate fields (avgRating and ratingsCount)
   private async updateMovieAggregates(tx: any, movieId: number) {
     const aggregateResult = await tx.rating.aggregate({
       where: { movieId },
@@ -242,6 +271,27 @@ export class RatingService {
         ratingsCount,
       },
     });
+
+    setTimeout(async () => {
+      try {
+        await this.updateSearchIndexForMovie(movieId, avgRating, ratingsCount);
+      } catch (error) {
+        console.error(`Failed to update search index for movie ${movieId}:`, error);
+      }
+    }, 0);
+  }
+
+  private async updateSearchIndexForMovie(movieId: number, avgRating: number, ratingsCount: number) {
+    try {
+      await this.searchService.updateMovieRating(
+        movieId.toString(),
+        Number(avgRating.toFixed(2)),
+        ratingsCount
+      );
+      console.log(`Updated search index for movie ${movieId}: avgRating=${avgRating}, count=${ratingsCount}`);
+    } catch (error) {
+      console.error(`Search index update failed for movie ${movieId}:`, error);
+    }
   }
 
   private async publishRatingEvent(

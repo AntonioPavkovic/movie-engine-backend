@@ -5,6 +5,15 @@ import { SearchMovieDTO } from './dto/search_movie.dto';
 import { ContentType } from 'src/common/enums/movie-types';
 import { MovieType } from '@prisma/client';
 
+interface FixRatingResult {
+  movieId: number;
+  title: string;
+  ratingsCount?: number;
+  avgRating?: number;
+  status: 'fixed' | 'error';
+  error?: string;
+}
+
 @Injectable()
 export class MoviesService {
   constructor(
@@ -174,4 +183,29 @@ export class MoviesService {
     }
   }
 
+  async updateSearchIndex(movieId: number) {
+    try {
+      const movie = await this.prisma.movie.findUnique({
+        where: { id: movieId },
+        include: {
+          casts: { include: { actor: true } }
+        }
+      });
+
+      if (movie) {
+        const searchMovie = {
+          ...movie,
+          cast: movie.casts?.map(cast => cast.actor?.name).join(' ') || '',
+          averageRating: movie.avgRating,
+          ratingCount: movie.ratingsCount,
+          coverImage: movie.coverUrl
+        };
+        
+        await this.searchService.indexMovie(searchMovie);
+        console.log(`Updated search index for movie ${movieId}`);
+      }
+    } catch (error) {
+      console.error(`Failed to update search index for movie ${movieId}:`, error);
+    }
+  }
 }

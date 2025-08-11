@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Client } from '@opensearch-project/opensearch';
 import { ConfigService } from '@nestjs/config';
-import { MovieType } from '@prisma/client'; // Import MovieType
+import { MovieType } from '@prisma/client'; 
 
 export interface SearchQuery {
   textQuery?: string;
@@ -14,7 +14,6 @@ export interface SearchQuery {
   newerThanYears?: number;
 }
 
-// Type definitions for OpenSearch queries
 interface TermQuery {
   term: Record<string, any>;
 }
@@ -117,27 +116,19 @@ export class SearchService {
   parseSearchQuery(query: string): SearchQuery {
     const parsed: SearchQuery = {};
     
-    // Remove the query from the original string as we process it
     let remainingQuery = query.toLowerCase().trim();
 
-    // Parse rating queries
     const ratingPatterns = [
-      // "5 stars", "5 star"
       { pattern: /(\d+(?:\.\d+)?)\s*stars?/g, type: 'exact' },
-      // "at least 3 stars", "minimum 3 stars"
       { pattern: /(?:at least|minimum|min)\s*(\d+(?:\.\d+)?)\s*stars?/g, type: 'min' },
-      // "more than 3 stars", "above 3 stars"
       { pattern: /(?:more than|above|over)\s*(\d+(?:\.\d+)?)\s*stars?/g, type: 'min' },
-      // "less than 3 stars", "below 3 stars", "under 3 stars"
       { pattern: /(?:less than|below|under)\s*(\d+(?:\.\d+)?)\s*stars?/g, type: 'max' },
-      // "up to 3 stars", "maximum 3 stars"
       { pattern: /(?:up to|maximum|max)\s*(\d+(?:\.\d+)?)\s*stars?/g, type: 'max' }
     ];
 
     ratingPatterns.forEach(({ pattern, type }) => {
       const matches = remainingQuery.match(pattern);
       if (matches) {
-        // Reset regex lastIndex to avoid issues with global flag
         pattern.lastIndex = 0;
         const ratingMatch = pattern.exec(remainingQuery);
         if (ratingMatch) {
@@ -145,14 +136,11 @@ export class SearchService {
           if (type === 'exact') parsed.exactRating = rating;
           else if (type === 'min') parsed.minRating = rating;
           else if (type === 'max') parsed.maxRating = rating;
-          
-          // Remove the matched pattern from the query
           remainingQuery = remainingQuery.replace(ratingMatch[0], '').trim();
         }
       }
     });
 
-    // Parse year queries
     const yearPatterns = [
       // "after 2015", "since 2015", "from 2015"
       { pattern: /(?:after|since|from)\s*(\d{4})/g, type: 'after' },
@@ -169,7 +157,6 @@ export class SearchService {
     yearPatterns.forEach(({ pattern, type }) => {
       const matches = remainingQuery.match(pattern);
       if (matches) {
-        // Reset regex lastIndex to avoid issues with global flag
         pattern.lastIndex = 0;
         const yearMatch = pattern.exec(remainingQuery);
         if (yearMatch) {
@@ -185,13 +172,11 @@ export class SearchService {
           else if (type === 'older') parsed.beforeYear = currentYear - value;
           else if (type === 'newer') parsed.afterYear = currentYear - value;
           
-          // Remove the matched pattern from the query
           remainingQuery = remainingQuery.replace(yearMatch[0], '').trim();
         }
       }
     });
 
-    // What remains is the text search query
     if (remainingQuery && remainingQuery.length > 0) {
       parsed.textQuery = remainingQuery;
     }
@@ -201,7 +186,7 @@ export class SearchService {
 
   async searchMovies(
     query: string, 
-    type: MovieType, // Changed from string to MovieType
+    type: MovieType,
     page: number = 0, 
     limit: number = 10
   ) {
@@ -211,14 +196,12 @@ export class SearchService {
       const mustClauses: QueryClause[] = [];
       const shouldClauses: QueryClause[] = [];
 
-      // Filter by content type
       mustClauses.push({ 
         term: { 
-          type: type // Will be MovieType.MOVIE or MovieType.TV_SHOW
+          type: type 
         } 
       });
 
-      // Handle text search
       if (parsedQuery.textQuery) {
         shouldClauses.push(
           { match: { title: { query: parsedQuery.textQuery, boost: 3 } } },
@@ -227,7 +210,6 @@ export class SearchService {
         );
       }
 
-      // Handle rating filters
       if (parsedQuery.exactRating !== undefined) {
         mustClauses.push({
           range: {
@@ -258,7 +240,6 @@ export class SearchService {
         }
       }
 
-      // Handle year filters
       if (parsedQuery.afterYear !== undefined) {
         mustClauses.push({
           range: { 
@@ -278,7 +259,6 @@ export class SearchService {
         });
       }
 
-      // Build the search body with proper types
       const searchBody: SearchRequestBody = {
         query: {
           bool: {
@@ -305,7 +285,6 @@ export class SearchService {
         body: searchBody
       });
 
-      // Handle different total hit formats
       const totalHits = response.body.hits.total;
       const total = typeof totalHits === 'number' 
         ? totalHits 
@@ -336,7 +315,7 @@ export class SearchService {
           title: movie.title,
           description: movie.description,
           cast: Array.isArray(movie.cast) ? movie.cast.join(' ') : movie.cast,
-          type: movie.type, // Keep as MovieType enum value
+          type: movie.type,
           releaseDate: movie.releaseDate,
           averageRating: movie.averageRating || 0,
           ratingCount: movie.ratingCount || 0,
@@ -377,7 +356,6 @@ export class SearchService {
     }
   }
 
-  // Bulk indexing method for better performance when syncing large datasets
   async bulkIndexMovies(movies: any[]) {
     if (movies.length === 0) return;
 
