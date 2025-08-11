@@ -1,5 +1,5 @@
 import { CastDTO } from "src/cast/dto/cast.dto";
-import { MovieType } from "src/common/enums/movie-types";
+import { ContentType  } from "src/common/enums/movie-types";
 
 export class TopMoviesDTO {
   id: string;
@@ -7,7 +7,7 @@ export class TopMoviesDTO {
   description?: string | null;
   coverImageUrl?: string | null;
   releaseDate?: Date | null;
-  type: MovieType;
+  type: ContentType ;
   averageRating: number;
   ratingsCount: number;
   cast: CastDTO[];

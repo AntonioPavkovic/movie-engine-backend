@@ -6,7 +6,7 @@ import {
   ArrayNotEmpty,
   IsUrl,
 } from 'class-validator';
-import { MovieType } from 'src/common/enums/movie-types';
+import { ContentType  } from 'src/common/enums/movie-types';
 
 
 export class MovieCreateDto {
@@ -25,8 +25,8 @@ export class MovieCreateDto {
   @IsUrl()
   coverImageUrl?: string;
 
-  @IsEnum(MovieType)
-  type: MovieType;
+  @IsEnum(ContentType )
+  type: ContentType ;
 
   @IsOptional()
   @IsArray()
