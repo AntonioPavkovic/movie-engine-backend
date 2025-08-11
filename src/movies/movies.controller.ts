@@ -1,9 +1,11 @@
-import { Controller, Get, Param, ParseIntPipe, Post, Body, Query, ValidationPipe, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Post, Body, Query, ValidationPipe, BadRequestException, UseGuards } from '@nestjs/common';
 import { MoviesService } from './movies.service';
 import { SearchMovieDTO } from './dto/search_movie.dto';
 import { RatingService } from 'src/ratings/service/rating.service';
+import { ApiKeyGuard } from 'src/auth/guards/api-key.guard';
 
 @Controller('movies')
+@UseGuards(ApiKeyGuard)
 export class MoviesController {
   constructor(
     private readonly moviesService: MoviesService,
