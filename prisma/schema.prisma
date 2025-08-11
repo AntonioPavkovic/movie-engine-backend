@@ -44,7 +44,7 @@ model Rating {
   movieId   Int
   stars     Int      // 1..5
   createdAt DateTime @default(now())
-  sourceId  String?  @unique
+  sourceId  String?
 }
 
 

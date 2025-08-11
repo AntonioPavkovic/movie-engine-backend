@@ -15,12 +15,4 @@ export class MoviesController {
   async byId(@Param('id', ParseIntPipe) id: number) {
     return this.service.getMovieById(id);
   }
-
-  @Post(':id/rate')
-  async rate(
-    @Param('id', ParseIntPipe) id: number,
-    @Body('stars') stars: number,
-  ) {
-    return this.service.rateMovie(id, Number(stars));
-  }
 }
