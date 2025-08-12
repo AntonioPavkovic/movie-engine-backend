@@ -1,14 +1,26 @@
-import { CastDTO } from "src/cast/dto/cast.dto";
-import { ContentType  } from "src/common/enums/movie-types";
+import { Type } from "class-transformer";
+import { IsOptional, IsInt, Min, Max, IsEnum } from "class-validator";
 
-export class TopMoviesDTO {
-  id: string;
-  title: string;
-  description?: string | null;
-  coverImageUrl?: string | null;
-  releaseDate?: Date | null;
-  type: ContentType ;
-  averageRating: number;
-  ratingsCount: number;
-  cast: CastDTO[];
+export enum MediaType {
+  MOVIE = 'MOVIE',
+  TV_SHOW = 'TV_SHOW'
+}
+
+export class TopMoviesQueryDTO {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number = 10;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number = 0;
+
+  @IsOptional()
+  @IsEnum(MediaType)
+  type?: MediaType;
 }

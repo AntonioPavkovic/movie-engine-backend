@@ -1,26 +1,64 @@
-import { Controller, Get, Param, ParseIntPipe, Post, Body, Query, ValidationPipe, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Post, Body, Query, ValidationPipe, BadRequestException, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
 import { MoviesService } from './movies.service';
 import { SearchMovieDTO } from './dto/search_movie.dto';
 import { RatingService } from 'src/ratings/service/rating.service';
 import { ApiKeyGuard } from 'src/auth/guards/api-key.guard';
+import { OpenSearchService } from 'src/search/opensearch.service';
 
 @Controller('movies')
 @UseGuards(ApiKeyGuard)
 export class MoviesController {
   constructor(
     private readonly moviesService: MoviesService,
-    private readonly ratingService: RatingService
+    private readonly ratingService: RatingService,
+    private openSearchService: OpenSearchService
   ) {}
   
   @Get('search')
   async searchMovies(
-    @Query('query') query?: string,
-    @Query('type') type: 'MOVIE' | 'TV_SHOW' = 'MOVIE',
-    @Query('page', new ValidationPipe({ transform: true })) page: number = 0,
-    @Query('limit', new ValidationPipe({ transform: true })) limit: number = 10
+    @Query('q') query: string,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '20'
   ) {
-    const searchDto: SearchMovieDTO = { query, type, page, limit };
-    return this.moviesService.searchMovies(searchDto);
+    console.log('=== SEARCH ENDPOINT CALLED ===');
+    console.log('Query:', query);
+    console.log('Page:', page);
+    console.log('Limit:', limit);
+
+    if (!query || query.trim() === '') {
+      console.log('ERROR: Empty query');
+      throw new HttpException('Query parameter is required', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      console.log('Calling OpenSearch service...');
+      
+      const result = await this.openSearchService.searchMovies(
+        query,
+        parseInt(page),
+        parseInt(limit)
+      );
+      
+      console.log('Search result:', JSON.stringify(result, null, 2));
+
+      const response = {
+        success: true,
+        data: result,
+        message: `Found ${result.total} results for "${query}"`
+      };
+
+      console.log('Sending response:', response);
+      return response;
+      
+    } catch(error: any) {
+      console.log('ERROR in search:', error.message);
+      console.log('Full error:', error);
+      
+      throw new HttpException(
+        `Search failed: ${error.message}`, 
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 
   @Get('top')
