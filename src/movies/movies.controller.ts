@@ -1,9 +1,24 @@
-import { Controller, Get, Param, ParseIntPipe, Post, Body, Query, ValidationPipe, BadRequestException, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
+import { 
+  Controller, 
+  Get, 
+  Param, 
+  ParseIntPipe, 
+  Post, 
+  Body, 
+  Query, 
+  ValidationPipe, 
+  BadRequestException, 
+  UseGuards, 
+  HttpException, 
+  HttpStatus 
+} from '@nestjs/common';
 import { MoviesService } from './movies.service';
 import { SearchMovieDTO } from './dto/search_movie.dto';
 import { RatingService } from 'src/ratings/service/rating.service';
 import { ApiKeyGuard } from 'src/auth/guards/api-key.guard';
 import { OpenSearchService } from 'src/search/opensearch.service';
+import { MovieType } from '@prisma/client';
+import { QueryParserService } from 'src/search/services/query-parser.service';
 
 @Controller('movies')
 @UseGuards(ApiKeyGuard)
@@ -11,44 +26,92 @@ export class MoviesController {
   constructor(
     private readonly moviesService: MoviesService,
     private readonly ratingService: RatingService,
-    private openSearchService: OpenSearchService
+    private readonly openSearchService: OpenSearchService,
+    private readonly queryParser: QueryParserService
   ) {}
   
-  
+  @Get('debug/parse')
+  async debugQueryParsing(@Query('q') query: string) {
+console.log('=== SEARCH DEBUG ===');
+console.log('Original query:', query);
+const criteria = this.queryParser.parseQuery(query);
+console.log('Parsed criteria:', criteria);
+    
+    try {
+      const criteria = this.queryParser.parseQuery(query);
+      console.log('Parsed criteria:', criteria);
+      
+      return {
+        success: true,
+        input: query,
+        parsed: criteria,
+      };
+    } catch (error) {
+      console.error('Error in parsing:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
   @Get('search')
   async searchMovies(
-    @Query('query') query: string,
+    @Query('query') query?: string,
+    @Query('type') type?: MovieType,
     @Query('page') page: string = '1',
-    @Query('limit') limit: string = '20'
+    @Query('limit') limit: string = '10'
   ) {
     console.log('=== SEARCH ENDPOINT CALLED ===');
     console.log('Query:', query);
+    console.log('Type:', type);
     console.log('Page:', page);
     console.log('Limit:', limit);
 
-    if (!query || query.trim() === '') {
-      console.log('ERROR: Empty query');
-      throw new HttpException('Query parameter is required', HttpStatus.BAD_REQUEST);
+    // Parse and validate parameters
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+
+    if (pageNum < 1) {
+      throw new HttpException('Page must be greater than 0', HttpStatus.BAD_REQUEST);
+    }
+
+    if (limitNum < 1 || limitNum > 50) {
+      throw new HttpException('Limit must be between 1 and 50', HttpStatus.BAD_REQUEST);
+    }
+
+    // Validate type if provided
+    if (type && !Object.values(MovieType).includes(type)) {
+      throw new HttpException('Invalid type. Must be MOVIE or TV_SHOW', HttpStatus.BAD_REQUEST);
     }
 
     try {
-      console.log('Calling OpenSearch service...');
+      console.log('Calling OpenSearch service with correct parameters...');
       
+      // Call with correct parameter order: query, type, page, limit
       const result = await this.openSearchService.searchMovies(
         query,
-        parseInt(page),
-        parseInt(limit)
+        type,
+        pageNum,
+        limitNum
       );
       
-      console.log('Search result:', JSON.stringify(result, null, 2));
+      console.log('Search result:', {
+        moviesFound: result.movies.length,
+        total: result.total,
+        page: result.page,
+        totalPages: result.totalPages
+      });
 
       const response = {
         success: true,
         data: result,
-        message: `Found ${result.total} results for "${query}"`
+        message: query 
+          ? `Found ${result.total} results for "${query}"` 
+          : `Found ${result.total} ${type || 'movies and TV shows'}`
       };
 
-      console.log('Sending response:', response);
+      console.log('Sending response with', result.movies.length, 'movies');
       return response;
       
     } catch(error: any) {
@@ -63,37 +126,53 @@ export class MoviesController {
   }
   
   @Get('top')
-  async top(
+  async getTopMovies(
     @Query('limit') limit = '10', 
-    @Query('type') type?: 'MOVIE' | 'TV_SHOW',
-    @Query('page') page = '0'  // Add page parameter
+    @Query('type') type?: MovieType,
+    @Query('page') page = '1'  // Change default to 1 for consistency
   ) {
-    const lim = parseInt(limit, 10) || 10;
-    const pageNum = parseInt(page, 10) || 0;
+    const limitNum = parseInt(limit, 10) || 10;
+    const pageNum = parseInt(page, 10) || 1;
     
-    console.log('Top movies request:', { limit: lim, type, page: pageNum });
+    console.log('Top movies request:', { limit: limitNum, type, page: pageNum });
+
+    // Validate parameters
+    if (pageNum < 1) {
+      throw new HttpException('Page must be greater than 0', HttpStatus.BAD_REQUEST);
+    }
+
+    if (limitNum < 1 || limitNum > 50) {
+      throw new HttpException('Limit must be between 1 and 50', HttpStatus.BAD_REQUEST);
+    }
+
+    // Validate type if provided
+    if (type && !Object.values(MovieType).includes(type)) {
+      throw new HttpException('Invalid type. Must be MOVIE or TV_SHOW', HttpStatus.BAD_REQUEST);
+    }
     
     try {
-      const result = await this.moviesService.getTopMovies(lim, type, pageNum);
+      // For top movies, if page is 1, use getTopRatedMovies for better performance
+      // Otherwise, use searchMovies with pagination
+      let result;
+      
+      if (pageNum === 1) {
+        result = await this.openSearchService.getTopRatedMovies(type, limitNum);
+      } else {
+        result = await this.openSearchService.searchMovies(undefined, type, pageNum, limitNum);
+      }
       
       console.log('Top movies result:', {
         moviesCount: result.movies.length,
         total: result.total,
         page: result.page,
-        hasMore: result.hasMore
+        totalPages: result.totalPages
       });
       
-      // Return in consistent format that matches your search endpoint
+      // Return consistent format that matches search endpoint
       return {
         success: true,
-        data: {
-          movies: result.movies,
-          total: result.total,
-          page: result.page + 1, // Convert to 1-based for frontend consistency
-          totalPages: Math.ceil(result.total / result.limit),
-          hasMore: result.hasMore
-        },
-        message: `Found ${result.total} top ${type || 'movies and TV shows'}`
+        data: result,
+        message: `Found ${result.total} top ${type ? type.toLowerCase().replace('_', ' ') + 's' : 'movies and TV shows'}`
       };
     } catch (error: any) {
       console.error('Top movies error:', error);
@@ -104,96 +183,38 @@ export class MoviesController {
     }
   }
 
-  @Get('index-exists')
-  async checkIndexExists() {
+  @Get('stats')
+  async getSearchStats() {
     try {
-      const exists = await this.openSearchService.checkIndexExists();
+      const stats = await this.openSearchService.getSearchStats();
       return {
         success: true,
-        exists: exists,
-        message: exists ? 'Index exists' : 'Index does not exist'
+        data: stats,
+        message: 'Search statistics retrieved successfully'
       };
-    } catch (error) {
-      return {
-        success: false,
-        message: `Check failed: ${error.message}`,
-        error: error.message
-      };
-    }
-  }
-
-  @Get('index-mapping')
-  async getIndexMapping() {
-    try {
-      const mapping = await this.openSearchService.getIndexMapping();
-      return {
-        success: true,
-        mapping: mapping,
-        message: 'Index mapping retrieved successfully'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: `Mapping retrieval failed: ${error.message}`,
-        error: error.message
-      };
-    }
-  }
-
-  @Post('create-index')
-  async createSearchIndex() {
-    try {
-      await this.openSearchService.createMoviesIndex();
-      return {
-        success: true,
-        message: 'Search index created successfully'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: `Index creation failed: ${error.message}`,
-        error: error.message
-      };
-    }
-  }
-
-  @Post('delete-index')
-  async deleteSearchIndex() {
-    try {
-      await this.openSearchService.deleteMoviesIndex();
-      return {
-        success: true,
-        message: 'Search index deleted successfully'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: `Index deletion failed: ${error.message}`,
-        error: error.message
-      };
-    }
-  }
-
-  @Post('sync-search')
-  async syncToSearch() {
-    try {
-      await this.openSearchService.syncMoviesToOpenSearch();
-      return {
-        success: true,
-        message: 'Movies synced to search index successfully'
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: `Sync failed: ${error.message}`,
-        error: error.message
-      };
+    } catch (error: any) {
+      throw new HttpException(
+        `Failed to get stats: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
     }
   }
 
   @Get(':id')
-  async byId(@Param('id', ParseIntPipe) id: number) {
-    return this.moviesService.getMovieById(id);
+  async getMovieById(@Param('id', ParseIntPipe) id: number) {
+    try {
+      const movie = await this.moviesService.getMovieById(id);
+      return {
+        success: true,
+        data: movie,
+        message: 'Movie retrieved successfully'
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        `Movie not found: ${error.message}`,
+        HttpStatus.NOT_FOUND
+      );
+    }
   }
 
   @Post(':id/rate')
@@ -212,29 +233,50 @@ export class MoviesController {
       });
 
       const updatedMovie = await this.moviesService.getMovieByIdWithRatings(id);
-      await this.moviesService.updateSearchIndex(id);
 
       return {
         success: true,
         message: 'Anonymous rating submitted successfully',
-        rating: {
-          stars: ratingResult.stars,
-          movieId: ratingResult.movieId,
-          createdAt: ratingResult.createdAt
-        },
-        movie: {
-          id: updatedMovie.id,
-          title: updatedMovie.title,
-          avgRating: updatedMovie.avgRating,
-          ratingsCount: updatedMovie.ratingsCount,
-          description: updatedMovie.description,
-          releaseDate: updatedMovie.releaseDate,
-          type: updatedMovie.type,
-          casts: updatedMovie.casts
+        data: {
+          rating: {
+            stars: ratingResult.stars,
+            movieId: ratingResult.movieId,
+            createdAt: ratingResult.createdAt
+          },
+          movie: {
+            id: updatedMovie.id,
+            title: updatedMovie.title,
+            avgRating: updatedMovie.avgRating,
+            ratingsCount: updatedMovie.ratingsCount,
+            description: updatedMovie.description,
+            releaseDate: updatedMovie.releaseDate,
+            type: updatedMovie.type,
+            casts: updatedMovie.casts
+          }
         }
       };
-    } catch (error) {
-      throw new BadRequestException(error.message);
+    } catch (error: any) {
+      throw new BadRequestException(`Rating failed: ${error.message}`);
+    }
+  }
+
+  @Get('debug/test-nlp')
+  async testNlpParsing(@Query('query') query: string) {
+    if (!query) {
+      throw new BadRequestException('Query parameter is required');
+    }
+
+    try {
+      return {
+        success: true,
+        query: query,
+        message: 'Use the search endpoint to test NLP parsing in action'
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        `NLP test failed: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
     }
   }
 }

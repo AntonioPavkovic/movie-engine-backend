@@ -6,6 +6,7 @@ import { SearchModule } from 'src/search/search.module';
 import { RatingModule } from 'src/ratings/rating.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { OpenSearchService } from 'src/search/opensearch.service';
+import { QueryParserService } from 'src/search/services/query-parser.service';
 
 @Module({
   imports: [
@@ -14,7 +15,7 @@ import { OpenSearchService } from 'src/search/opensearch.service';
     AuthModule
   ],
   controllers: [MoviesController],
-  providers: [MoviesService, PrismaService, OpenSearchService],
+  providers: [MoviesService, PrismaService, OpenSearchService, QueryParserService],
   exports: [MoviesService],
 })
 export class MoviesModule {}
