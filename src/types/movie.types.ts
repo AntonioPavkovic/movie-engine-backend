@@ -25,6 +25,8 @@ export interface SearchFilters {
   decade?: string;
   cast?: string[];
   minRatingsCount?: number;
+  minYear?: number;    
+  maxYear?: number;    
 }
 
 export interface NLPAnalysis {

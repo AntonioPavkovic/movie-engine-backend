@@ -14,9 +14,11 @@ export class MoviesController {
     private openSearchService: OpenSearchService
   ) {}
   
+  // ===== SPECIFIC ROUTES FIRST (before :id route) =====
+  
   @Get('search')
   async searchMovies(
-    @Query('q') query: string,
+    @Query('query') query: string,
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '20'
   ) {
@@ -67,6 +69,95 @@ export class MoviesController {
     return this.moviesService.getTopMovies(lim, type);
   }
 
+  @Get('index-exists')
+  async checkIndexExists() {
+    try {
+      const exists = await this.openSearchService.checkIndexExists();
+      return {
+        success: true,
+        exists: exists,
+        message: exists ? 'Index exists' : 'Index does not exist'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Check failed: ${error.message}`,
+        error: error.message
+      };
+    }
+  }
+
+  @Get('index-mapping')
+  async getIndexMapping() {
+    try {
+      const mapping = await this.openSearchService.getIndexMapping();
+      return {
+        success: true,
+        mapping: mapping,
+        message: 'Index mapping retrieved successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Mapping retrieval failed: ${error.message}`,
+        error: error.message
+      };
+    }
+  }
+
+  @Post('create-index')
+  async createSearchIndex() {
+    try {
+      await this.openSearchService.createMoviesIndex();
+      return {
+        success: true,
+        message: 'Search index created successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Index creation failed: ${error.message}`,
+        error: error.message
+      };
+    }
+  }
+
+  @Post('delete-index')
+  async deleteSearchIndex() {
+    try {
+      await this.openSearchService.deleteMoviesIndex();
+      return {
+        success: true,
+        message: 'Search index deleted successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Index deletion failed: ${error.message}`,
+        error: error.message
+      };
+    }
+  }
+
+  @Post('sync-search')
+  async syncToSearch() {
+    try {
+      await this.openSearchService.syncMoviesToOpenSearch();
+      return {
+        success: true,
+        message: 'Movies synced to search index successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Sync failed: ${error.message}`,
+        error: error.message
+      };
+    }
+  }
+
+  // ===== PARAMETERIZED ROUTES LAST =====
+
   @Get(':id')
   async byId(@Param('id', ParseIntPipe) id: number) {
     return this.moviesService.getMovieById(id);
@@ -111,21 +202,6 @@ export class MoviesController {
       };
     } catch (error) {
       throw new BadRequestException(error.message);
-    }
-  }
-
-
-  @Post('admin/sync-search')
-  async syncToSearch() {
-    try {
-      const result = await this.moviesService.syncMoviesToSearch();
-      return result;
-    } catch (error) {
-      return {
-        success: false,
-        message: `Sync failed: ${error.message}`,
-        error: error.message
-      };
     }
   }
 }

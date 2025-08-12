@@ -70,6 +70,29 @@ export class OpenSearchService {
     }
   }
 
+  // New method for frontend integration with 2-character minimum
+  async searchMoviesWithMinLength(
+    query: string, 
+    page: number = 1, 
+    limit: number = 20,
+    type?: MovieType
+  ): Promise<{
+    movies: MovieSearchResult[];
+    total: number;
+    page: number;
+    totalPages: number;
+    filters: SearchFilters;
+    suggestions?: string[];
+  }> {
+    // Frontend should enforce 2-character minimum, but add backend check
+    if (query.trim().length < 2) {
+      // Return default Top 10 for the selected type
+      return this.getTopMoviesByType(type, page, limit);
+    }
+    
+    return this.searchMovies(query, page, limit);
+  }
+
   private analyzeQuery(query: string): NLPAnalysis {
     const text = query.toLowerCase();
     
@@ -137,6 +160,20 @@ export class OpenSearchService {
       filters.year = yearMatches.map(y => parseInt(y));
     }
     
+    const afterYearMatch = text.match(/after\s+(\d{4})/i);
+    if (afterYearMatch) {
+      filters.minYear = parseInt(afterYearMatch[1]);
+    }
+    
+    // NEW: "older than X years" pattern
+    const olderThanMatch = text.match(/older\s+than\s+(\d+)\s+years?/i);
+    if (olderThanMatch) {
+      const yearsAgo = parseInt(olderThanMatch[1]);
+      const currentYear = new Date().getFullYear();
+      filters.maxYear = currentYear - yearsAgo;
+    }
+    
+    // Decade detection
     if (text.includes('devedesete') || text.includes('90s') || text.includes('1990s')) {
       filters.decade = '1990s';
     }
@@ -147,11 +184,13 @@ export class OpenSearchService {
       filters.decade = '2010s';
     }
     
+    // Enhanced rating patterns
     const ratingPattern = /(\d+(?:\.\d+)?)\s*(?:stars?|\/5|zvjezdica|ocjena)/gi;
     const ratingMatch = text.match(ratingPattern);
     if (ratingMatch) {
       const rating = parseFloat(ratingMatch[0]);
-      if (text.includes('iznad') || text.includes('više') || text.includes('above')) {
+      if (text.includes('iznad') || text.includes('više') || text.includes('above') || 
+          text.includes('at least')) {
         filters.minRating = rating;
       } else if (text.includes('ispod') || text.includes('manje') || text.includes('below')) {
         filters.maxRating = rating;
@@ -160,6 +199,13 @@ export class OpenSearchService {
       }
     }
     
+    // NEW: "at least X stars" pattern
+    const atLeastMatch = text.match(/at\s+least\s+(\d+(?:\.\d+)?)\s*stars?/i);
+    if (atLeastMatch) {
+      filters.minRating = parseFloat(atLeastMatch[1]);
+    }
+    
+    // Quality indicators
     if (text.includes('najbolji') || text.includes('top') || text.includes('odličan') || text.includes('excellent')) {
       filters.minRating = 4.0;
       filters.minRatingsCount = 10;
@@ -234,10 +280,10 @@ export class OpenSearchService {
         }
       },
       sort: [] as any[],
-     /* aggs: {
+      aggs: {
         types: { 
           terms: { 
-            field: 'type.keyword' 
+            field: 'type' // FIXED: Changed from 'type.keyword'
           } 
         },
         years: { 
@@ -249,32 +295,33 @@ export class OpenSearchService {
         },
         ratings: { 
           histogram: { 
-            field: 'avgRating', 
+            field: 'averageRating', // FIXED: Changed from 'avgRating'
             interval: 0.5 
           } 
         }
-      }*/
+      }
     };
 
+    // Entity-based phrase matching
     analysis.entities.forEach(entity => {
       query.query.bool.should.push({
         multi_match: {
           query: entity,
-          fields: ['title^10', 'cast.actorName^5'],
+          fields: ['title^10', 'cast^5'], // FIXED: Changed from 'cast.actorName^5'
           type: 'phrase',
           boost: 5
         }
       });
     });
 
+    // Main multi-field search
     query.query.bool.should.push({
       multi_match: {
         query: originalQuery,
         fields: [
           'title^8',
           'description^3', 
-          'cast.actorName^4',
-          'cast.role^2'
+          'cast^4' // FIXED: Changed from 'cast.actorName^4' and removed 'cast.role^2'
         ],
         type: 'best_fields',
         fuzziness: 'AUTO',
@@ -282,6 +329,7 @@ export class OpenSearchService {
       }
     });
 
+    // Keyword matching
     if (analysis.keywords.length > 0) {
       query.query.bool.should.push({
         terms: {
@@ -292,36 +340,38 @@ export class OpenSearchService {
     }
 
     this.addFiltersToQuery(query, analysis.filters);
-
     this.addSorting(query, analysis.intent);
 
     return query;
   }
 
   private addFiltersToQuery(query: any, filters: SearchFilters) {
+    // Type filters
     if (filters.type && filters.type.length > 0) {
       query.query.bool.filter.push({
-        terms: { 'type.keyword': filters.type }
+        terms: { 'type': filters.type } // FIXED: Changed from 'type.keyword'
       });
     }
 
-    /*if (filters.minRating) {
+    // Rating filters - FIXED FIELD NAMES
+    if (filters.minRating) {
       query.query.bool.filter.push({
-        range: { avgRating: { gte: filters.minRating } }
+        range: { averageRating: { gte: filters.minRating } } // FIXED: Changed from avgRating
       });
     }
     if (filters.maxRating) {
       query.query.bool.filter.push({
-        range: { avgRating: { lte: filters.maxRating } }
+        range: { averageRating: { lte: filters.maxRating } } // FIXED: Changed from avgRating
       });
     }
 
     if (filters.minRatingsCount) {
       query.query.bool.filter.push({
-        range: { ratingsCount: { gte: filters.minRatingsCount } }
+        range: { ratingCount: { gte: filters.minRatingsCount } } // FIXED: Changed from ratingsCount
       });
-    }*/
+    }
 
+    // Specific year filters
     if (filters.year && filters.year.length > 0) {
       const yearRanges = filters.year.map(year => ({
         range: {
@@ -337,6 +387,24 @@ export class OpenSearchService {
       });
     }
 
+    // NEW: Min/Max year filters for "after" and "older than" patterns
+    if (filters.minYear) {
+      query.query.bool.filter.push({
+        range: {
+          releaseDate: { gte: `${filters.minYear}-01-01` }
+        }
+      });
+    }
+    
+    if (filters.maxYear) {
+      query.query.bool.filter.push({
+        range: {
+          releaseDate: { lte: `${filters.maxYear}-12-31` }
+        }
+      });
+    }
+
+    // Decade filters
     if (filters.decade) {
       const decadeStart = parseInt(filters.decade.substring(0, 4));
       query.query.bool.filter.push({
@@ -349,31 +417,34 @@ export class OpenSearchService {
       });
     }
 
-/*    if (filters.cast && filters.cast.length > 0) {
+    // Cast filters - FIXED
+    if (filters.cast && filters.cast.length > 0) {
       query.query.bool.filter.push({
-        terms: { 'cast.actorName.keyword': filters.cast }
+        terms: { 'cast': filters.cast } // FIXED: Changed from 'cast.actorName.keyword'
       });
-    }*/
+    }
   }
 
   private addSorting(query: any, intent: string) {
-    /*switch (intent) {
+    // FIXED: Always sort search results by rating using correct field names
+    switch (intent) {
       case 'recommendation':
-        query.sort.push({ avgRating: { order: 'desc' } });
-        query.sort.push({ ratingsCount: { order: 'desc' } });
+        query.sort.push({ averageRating: { order: 'desc' } }); // FIXED: Changed from avgRating
+        query.sort.push({ ratingCount: { order: 'desc' } });   // FIXED: Changed from ratingsCount
         query.sort.push({ _score: { order: 'desc' } });
         break;
         
       case 'list':
+        query.sort.push({ averageRating: { order: 'desc' } }); // FIXED: Changed from avgRating
         query.sort.push({ releaseDate: { order: 'desc' } });
-        query.sort.push({ avgRating: { order: 'desc' } });
         break;
         
       default:
+        // For all searches, sort by rating as required
+        query.sort.push({ averageRating: { order: 'desc' } }); // FIXED: Changed from avgRating
         query.sort.push({ _score: { order: 'desc' } });
-        query.sort.push({ avgRating: { order: 'desc' } });
         break;
-    }*/
+    }
   }
 
   private formatMovieResult(hit: any): MovieSearchResult {
@@ -385,9 +456,9 @@ export class OpenSearchService {
       coverUrl: source.coverUrl,
       releaseDate: source.releaseDate,
       type: source.type,
-      avgRating: source.avgRating,
-      ratingsCount: source.ratingsCount,
-      cast: source.cast || [],
+      avgRating: source.averageRating || 0, // FIXED: Map from averageRating to avgRating
+      ratingsCount: source.ratingCount || 0, // FIXED: Map from ratingCount to ratingsCount
+      cast: source.cast ? [{ actorName: source.cast }] : [], // FIXED: Handle cast as simple text
       score: hit._score,
       highlights: hit.highlight
     };
@@ -453,12 +524,9 @@ export class OpenSearchService {
           coverUrl: movie.coverUrl,
           releaseDate: movie.releaseDate.toISOString(),
           type: movie.type,
-          avgRating: movie.avgRating,
-          ratingsCount: movie.ratingsCount,
-          cast: movie.casts.map(cast => ({
-            actorName: cast.actor.name,
-            role: cast.role
-          })),
+          averageRating: movie.avgRating,    // FIXED: Map to averageRating
+          ratingCount: movie.ratingsCount,   // FIXED: Map to ratingCount
+          cast: movie.casts.map(cast => cast.actor.name).join(', '), // FIXED: Store as text
           keywords: this.generateKeywords(movie.title, movie.description),
           createdAt: movie.createdAt.toISOString(),
           updatedAt: movie.updatedAt.toISOString()
@@ -496,7 +564,6 @@ export class OpenSearchService {
       .slice(0, 20); 
   }
 
-
   async getTopMovies(limit: number = 20): Promise<MovieSearchResult[]> {
     const response = await this.client.search({
       index: 'movies',
@@ -505,19 +572,77 @@ export class OpenSearchService {
         query: {
           bool: {
             filter: [
-              { range: { avgRating: { gte: 3.5 } } },
-              { range: { ratingsCount: { gte: 5 } } }
+              { range: { averageRating: { gte: 3.5 } } }, // FIXED: Changed from avgRating
+              { range: { ratingCount: { gte: 5 } } }      // FIXED: Changed from ratingsCount
             ]
           }
         },
         sort: [
-          { avgRating: { order: 'desc' } },
-          { ratingsCount: { order: 'desc' } }
+          { averageRating: { order: 'desc' } }, // FIXED: Changed from avgRating
+          { ratingCount: { order: 'desc' } }    // FIXED: Changed from ratingsCount
         ]
       }
     });
 
     return response.body.hits.hits.map((hit: any) => this.formatMovieResult(hit));
+  }
+
+  // Enhanced getTopMovies to support type filtering for default view restoration
+  async getTopMoviesByType(
+    type?: MovieType, 
+    page: number = 1, 
+    limit: number = 20
+  ): Promise<{
+    movies: MovieSearchResult[];
+    total: number;
+    page: number;
+    totalPages: number;
+    filters: SearchFilters;
+    suggestions?: string[];
+  }> {
+    const from = (page - 1) * limit;
+    
+    const queryBody: any = {
+      from,
+      size: limit,
+      query: {
+        bool: {
+          filter: [
+            { range: { averageRating: { gte: 3.5 } } }, // FIXED: Changed from avgRating
+            { range: { ratingCount: { gte: 5 } } }      // FIXED: Changed from ratingsCount
+          ]
+        }
+      },
+      sort: [
+        { averageRating: { order: 'desc' } }, // FIXED: Changed from avgRating
+        { ratingCount: { order: 'desc' } }    // FIXED: Changed from ratingsCount
+      ]
+    };
+    
+    // Add type filter if specified (for tab-specific default view)
+    if (type) {
+      queryBody.query.bool.filter.push({
+        term: { 'type': type } // FIXED: Changed from 'type.keyword'
+      });
+    }
+    
+    const response = await this.client.search({
+      index: 'movies',
+      body: queryBody
+    });
+
+    const hits = response.body.hits;
+    const movies = hits.hits.map((hit: any) => this.formatMovieResult(hit));
+    const total = typeof hits.total === 'number' ? hits.total : hits.total?.value || 0;
+
+    return {
+      movies,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      filters: type ? { type: [type] } : {},
+      suggestions: []
+    };
   }
 
   async getRecentMovies(limit: number = 20): Promise<MovieSearchResult[]> {
@@ -544,9 +669,9 @@ export class OpenSearchService {
         from,
         size: limit,
         query: {
-          term: { 'type.keyword': type }
+          term: { 'type': type } // FIXED: Changed from 'type.keyword'
         },
-        sort: [{ avgRating: { order: 'desc' } }]
+        sort: [{ averageRating: { order: 'desc' } }] // FIXED: Changed from avgRating
       }
     });
 
@@ -560,111 +685,100 @@ export class OpenSearchService {
     };
   }
 
-    async createMoviesIndex(): Promise<void> {
-        try {
-            const indexExists = await this.client.indices.exists({ index: 'movies' });
-            
-            if (indexExists.body) {
-            this.logger.log('Movies index already exists');
-            return;
-            }
+  async createMoviesIndex(): Promise<void> {
+    try {
+      const indexExists = await this.client.indices.exists({ index: 'movies' });
+      
+      if (indexExists.body) {
+        this.logger.log('Movies index already exists');
+        return;
+      }
 
-            await this.client.indices.create({
-            index: 'movies',
-            body: {
-                mappings: {
-                properties: {
-                    id: { type: 'integer' },
-                    title: { 
-                    type: 'text',
-                    analyzer: 'standard',
-                    fields: {
-                        keyword: { type: 'keyword' }
-                    }
-                    },
-                    description: { type: 'text', analyzer: 'standard' },
-                    coverUrl: { type: 'keyword', index: false },
-                    releaseDate: { type: 'date' },
-                    type: { 
-                    type: 'text',
-                    fields: {
-                        keyword: { type: 'keyword' }
-                    }
-                    },
-                    avgRating: { type: 'float' },
-                    ratingsCount: { type: 'integer' },
-                    cast: {
-                    type: 'nested',
-                    properties: {
-                        actorName: { 
-                        type: 'text',
-                        fields: {
-                            keyword: { type: 'keyword' }
-                        }
-                        },
-                        role: { type: 'text' }
-                    }
-                    },
-                    keywords: { type: 'text' },
-                    createdAt: { type: 'date' },
-                    updatedAt: { type: 'date' }
+      await this.client.indices.create({
+        index: 'movies',
+        body: {
+          mappings: {
+            properties: {
+              id: { type: 'keyword' }, // Changed from integer to keyword
+              title: { 
+                type: 'text',
+                analyzer: 'standard',
+                fields: {
+                  keyword: { type: 'keyword' }
                 }
-                },
-                settings: {
-                number_of_shards: 1,
-                number_of_replicas: 0,
-                analysis: {
-                    analyzer: {
-                    movie_analyzer: {
-                        type: 'custom',
-                        tokenizer: 'standard',
-                        filter: ['lowercase', 'stop']
-                    }
-                    }
-                }
-                }
+              },
+              description: { type: 'text', analyzer: 'standard' },
+              coverUrl: { type: 'keyword', index: false },
+              releaseDate: { type: 'date' },
+              type: { 
+                type: 'keyword' // FIXED: Changed from text with keyword field to just keyword
+              },
+              averageRating: { type: 'float' }, // Match your sync method
+              ratingCount: { type: 'integer' }, // Match your sync method
+              cast: {
+                type: 'text', // Simple text field for cast names
+                analyzer: 'standard'
+              },
+              keywords: { type: 'text' },
+              createdAt: { type: 'date' },
+              updatedAt: { type: 'date' }
             }
-            });
-
-            this.logger.log('Movies index created successfully');
-        } catch (error: any) {
-            this.logger.error('Error creating movies index:', error.message);
-            throw error;
-        }
-    }
-
-    async deleteMoviesIndex(): Promise<void> {
-        try {
-            const indexExists = await this.client.indices.exists({ index: 'movies' });
-            
-            if (indexExists.body) {
-            await this.client.indices.delete({ index: 'movies' });
-            this.logger.log('Movies index deleted successfully');
-            } else {
-            this.logger.log('Movies index does not exist');
+          },
+          settings: {
+            number_of_shards: 1,
+            number_of_replicas: 0,
+            analysis: {
+              analyzer: {
+                movie_analyzer: {
+                  type: 'custom',
+                  tokenizer: 'standard',
+                  filter: ['lowercase', 'stop']
+                }
+              }
             }
-        } catch (error: any) {
-            this.logger.error('Error deleting movies index:', error.message);
-            throw error;
+          }
         }
-    }
+      });
 
-    async checkIndexExists(): Promise<boolean> {
-        try {
-            const response = await this.client.indices.exists({ index: 'movies' });
-            return response.body;
-        } catch (error) {
-            return false;
-        }
+      this.logger.log('Movies index created successfully');
+    } catch (error: any) {
+      this.logger.error('Error creating movies index:', error.message);
+      throw error;
     }
+  }
 
-    async getIndexMapping(): Promise<any> {
-        try {
-            const mapping = await this.client.indices.getMapping({ index: 'movies' });
-            return mapping.body;
-        } catch (error: any) {
-            this.logger.error('Error getting index mapping:', error.message);
-            throw error;
-        }
+  async deleteMoviesIndex(): Promise<void> {
+    try {
+      const indexExists = await this.client.indices.exists({ index: 'movies' });
+      
+      if (indexExists.body) {
+        await this.client.indices.delete({ index: 'movies' });
+        this.logger.log('Movies index deleted successfully');
+      } else {
+        this.logger.log('Movies index does not exist');
+      }
+    } catch (error: any) {
+      this.logger.error('Error deleting movies index:', error.message);
+      throw error;
     }
+  }
+
+  async checkIndexExists(): Promise<boolean> {
+    try {
+      const response = await this.client.indices.exists({ index: 'movies' });
+      return response.body;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  async getIndexMapping(): Promise<any> {
+    try {
+      const mapping = await this.client.indices.getMapping({ index: 'movies' });
+      return mapping.body;
+    } catch (error: any) {
+      this.logger.error('Error getting index mapping:', error.message);
+      throw error;
+    }
+  }
 }
