@@ -14,7 +14,6 @@ export class MoviesController {
     private openSearchService: OpenSearchService
   ) {}
   
-  // ===== SPECIFIC ROUTES FIRST (before :id route) =====
   
   @Get('search')
   async searchMovies(
@@ -62,11 +61,47 @@ export class MoviesController {
       );
     }
   }
-
+  
   @Get('top')
-  async top(@Query('limit') limit = '10', @Query('type') type?: 'MOVIE' | 'TV_SHOW') {
+  async top(
+    @Query('limit') limit = '10', 
+    @Query('type') type?: 'MOVIE' | 'TV_SHOW',
+    @Query('page') page = '0'  // Add page parameter
+  ) {
     const lim = parseInt(limit, 10) || 10;
-    return this.moviesService.getTopMovies(lim, type);
+    const pageNum = parseInt(page, 10) || 0;
+    
+    console.log('Top movies request:', { limit: lim, type, page: pageNum });
+    
+    try {
+      const result = await this.moviesService.getTopMovies(lim, type, pageNum);
+      
+      console.log('Top movies result:', {
+        moviesCount: result.movies.length,
+        total: result.total,
+        page: result.page,
+        hasMore: result.hasMore
+      });
+      
+      // Return in consistent format that matches your search endpoint
+      return {
+        success: true,
+        data: {
+          movies: result.movies,
+          total: result.total,
+          page: result.page + 1, // Convert to 1-based for frontend consistency
+          totalPages: Math.ceil(result.total / result.limit),
+          hasMore: result.hasMore
+        },
+        message: `Found ${result.total} top ${type || 'movies and TV shows'}`
+      };
+    } catch (error: any) {
+      console.error('Top movies error:', error);
+      throw new HttpException(
+        `Failed to get top movies: ${error.message}`, 
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
   }
 
   @Get('index-exists')
@@ -155,8 +190,6 @@ export class MoviesController {
       };
     }
   }
-
-  // ===== PARAMETERIZED ROUTES LAST =====
 
   @Get(':id')
   async byId(@Param('id', ParseIntPipe) id: number) {

@@ -13,14 +13,28 @@ export class MoviesService {
     private searchService: SearchService
   ) {}
 
-  async getTopMovies(limit = 10, type?: 'MOVIE' | 'TV_SHOW') {
+  async getTopMovies(limit = 10, type?: 'MOVIE' | 'TV_SHOW', page = 0) {
     const where = type ? { type } : {};
-    return this.prisma.movie.findMany({
-      where,
-      orderBy: { avgRating: 'desc' },
-      take: limit,
-      include: { casts: { include: { actor: true } } },
-    });
+    const skip = page * limit;
+    
+    const [movies, total] = await Promise.all([
+      this.prisma.movie.findMany({
+        where,
+        orderBy: { avgRating: 'desc' },
+        skip,
+        take: limit,
+        include: { casts: { include: { actor: true } } },
+      }),
+      this.prisma.movie.count({ where })
+    ]);
+
+    return {
+      movies,
+      total,
+      page,
+      limit,
+      hasMore: (page + 1) * limit < total
+    };
   }
 
   async getTopRatedMovies(type: MovieType = MovieType.MOVIE, page: number = 0, limit: number = 10) {
