@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { OpenSearchEngineService } from './opensearch_engine.service';
-import { QueryParserService } from './services/query-parser.service';
+import { QueryParserService } from './services/query_parser.service';
 
 @Module({
   providers: [OpenSearchEngineService, QueryParserService],

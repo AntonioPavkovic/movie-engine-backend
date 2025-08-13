@@ -51,42 +51,6 @@ export class MoviesService {
     return movie;
   }
 
-  async getTopRatedMovies(type: MovieType = MovieType.MOVIE, page: number = 0, limit: number = 10) {
-    const skip = page * limit;
-    
-    const [movies, total] = await Promise.all([
-      this.prisma.movie.findMany({
-        where: { type },
-        include: { 
-          casts: { 
-            include: { actor: true } 
-          },
-          ratings: {
-            select: { stars: true }
-          }
-        },
-        orderBy: [
-          { avgRating: 'desc' },
-          { ratingsCount: 'desc' },
-          { createdAt: 'desc' }
-        ],
-        skip,
-        take: limit,
-      }),
-      this.prisma.movie.count({
-        where: { type }
-      })
-    ]);
-
-    return {
-      movies,
-      total,
-      page,
-      limit,
-      hasMore: (page + 1) * limit < total
-    };
-  }
-
   async getMovieById(id: number) {
     const movie = await this.prisma.movie.findUnique({
       where: { id },

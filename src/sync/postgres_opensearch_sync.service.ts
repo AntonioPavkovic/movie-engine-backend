@@ -40,7 +40,5 @@ export class PostgresOpenSearchSyncService {
       await this.openSearch.bulkIndexMovies(osMovies);
       offset += batchSize;
     }
-
-    console.log('✅ Movies synced to OpenSearch');
   }
 }

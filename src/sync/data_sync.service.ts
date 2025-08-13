@@ -161,26 +161,6 @@ export class DataSyncService implements OnModuleInit {
     }
   }
 
-  async emitSyncEvent(event: Omit<SyncEvent, 'timestamp'>) {
-    try {
-      const syncEvent: SyncEvent = {
-        ...event,
-        timestamp: new Date()
-      };
-
-      await this.redis.xadd(
-        this.syncStreamKey,
-        '*',
-        'data',
-        JSON.stringify(syncEvent)
-      );
-
-      this.logger.debug(`Emitted sync event: ${event.operation} ${event.entity} ${event.entityId}`);
-    } catch (error) {
-      this.logger.error('Failed to emit sync event:', error);
-    }
-  }
-
   private async checkAndPerformInitialSync() {
     try {
       const indexExists = await this.openSearch.checkIndexExists();
@@ -209,9 +189,7 @@ export class DataSyncService implements OnModuleInit {
     }
   }
 
-  /**
-   * Perform full synchronization from PostgreSQL to OpenSearch
-   */
+
   async   performFullSync() {
     this.logger.log('Starting full synchronization...');
     
@@ -252,7 +230,6 @@ export class DataSyncService implements OnModuleInit {
           };
         });
 
-        // Bulk index to OpenSearch
         await this.openSearch.bulkIndexMovies(transformedMovies);
 
         totalSynced += movies.length;
@@ -270,76 +247,6 @@ export class DataSyncService implements OnModuleInit {
     }
   }
 
-
-  async performIncrementalSync() {
-    this.logger.log('Starting incremental sync...');
-    
-    try {
-      const lastSyncKey = 'last_incremental_sync';
-      const lastSyncStr = await this.redis.get(lastSyncKey);
-      const lastSync = lastSyncStr ? new Date(lastSyncStr) : new Date(Date.now() - 60 * 60 * 1000); // Default to 1 hour ago
-
-      const currentTime = new Date();
-      const updatedMovies = await this.prisma.movie.findMany({
-        where: {
-          updatedAt: {
-            gt: lastSync
-          }
-        },
-        include: {
-          casts: {
-            include: { actor: true }
-          }
-        }
-      });
-
-      if (updatedMovies.length === 0) {
-        this.logger.log('No movies updated since last incremental sync');
-        await this.redis.set(lastSyncKey, currentTime.toISOString());
-        return;
-      }
-      const transformedMovies = updatedMovies.map(movie => {
-        return {
-          id: movie.id,
-          title: movie.title,
-          description: movie.description,
-          cast: movie.casts.map(c => c.actor.name),
-          type: movie.type,
-          releaseDate: movie.releaseDate,
-          avgRating: movie.avgRating, 
-          ratingsCount: movie.ratingsCount, 
-          createdAt: movie.createdAt,
-          updatedAt: movie.updatedAt
-        };
-      });
-
-      await this.openSearch.bulkIndexMovies(transformedMovies);
-
-      // Update last sync timestamp
-      await this.redis.set(lastSyncKey, currentTime.toISOString());
-
-      this.logger.log(`Incremental sync completed. Updated ${updatedMovies.length} movies.`);
-    } catch (error) {
-      this.logger.error('Incremental sync failed:', error);
-    }
-  }
-
-
-  async syncMovie(movieId: number) {
-    await this.emitSyncEvent({
-      operation: 'UPDATE',
-      entity: 'movie',
-      entityId: movieId
-    });
-  }
-
-
-  async triggerFullResync() {
-    this.logger.log('Manual full resync triggered');
-    await this.performFullSync();
-  }
-
- 
   async getSyncStatus() {
     try {
       const [pgCount, osCount, lastSync] = await Promise.all([

@@ -5,8 +5,7 @@ import {
   ParseIntPipe, 
   Post, 
   Body, 
-  Query, 
-  ValidationPipe, 
+  Query,  
   BadRequestException, 
   UseGuards, 
   HttpException, 
@@ -16,7 +15,7 @@ import { MoviesService } from './movies.service';
 import { RatingService } from 'src/ratings/service/rating.service';
 import { ApiKeyGuard } from 'src/auth/guards/api-key.guard';
 import { MovieType } from '@prisma/client';
-import { QueryParserService } from 'src/search/services/query-parser.service';
+import { QueryParserService } from 'src/search/services/query_parser.service';
 import { OpenSearchEngineService } from 'src/search/opensearch_engine.service';
 import { InitialSyncService, SyncOptions } from 'src/sync/initial_sync.service';
 
@@ -84,27 +83,6 @@ export class MoviesController {
         `Failed to get sync status: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR
       );
-    }
-  }
-
-  @Get('debug/parse')
-  async debugQueryParsing(@Query('q') query: string) {
-    
-    try {
-      const criteria = this.queryParser.parseQuery(query);
-      console.log('Parsed criteria:', criteria);
-      
-      return {
-        success: true,
-        input: query,
-        parsed: criteria,
-      };
-    } catch (error) {
-      console.error('Error in parsing:', error);
-      return {
-        success: false,
-        error: error.message
-      };
     }
   }
 
@@ -278,23 +256,4 @@ export class MoviesController {
     }
   }
 
-  @Get('debug/test-nlp')
-  async testNlpParsing(@Query('query') query: string) {
-    if (!query) {
-      throw new BadRequestException('Query parameter is required');
-    }
-
-    try {
-      return {
-        success: true,
-        query: query,
-        message: 'Use the search endpoint to test NLP parsing in action'
-      };
-    } catch (error: any) {
-      throw new HttpException(
-        `NLP test failed: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
 }

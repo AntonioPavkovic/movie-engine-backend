@@ -65,20 +65,17 @@ export class InitialSyncService {
     const { batchSize = 100, deleteExisting = false, syncRatings = true } = options;
 
     try {
-      // Step 1: Delete existing data if requested
       if (deleteExisting) {
         this.syncStatus.currentOperation = 'Clearing existing OpenSearch data';
         await this.clearOpenSearchData();
       }
 
-      // Step 2: Count total records
       this.syncStatus.currentOperation = 'Counting records';
       const totalMovies = await this.prisma.movie.count();
       this.syncStatus.totalRecords = totalMovies;
 
       this.logger.log(`Starting sync of ${totalMovies} movies`);
 
-      // Step 3: Sync movies in batches
       this.syncStatus.currentOperation = 'Syncing movies';
       let skip = 0;
       
@@ -138,7 +135,6 @@ export class InitialSyncService {
   }
 
     private transformMovieForOpenSearch(movie: any) {
-    // Calculate average rating
     const avgRating = movie.ratings && movie.ratings.length > 0
         ? movie.ratings.reduce((sum: number, rating: any) => sum + rating.stars, 0) / movie.ratings.length
         : null;
@@ -154,13 +150,12 @@ export class InitialSyncService {
         casts: movie.casts?.filter(cast => cast.actor).map((cast: any) => ({
         id: cast.id,
         role: cast.role,
-        person: {  // alias actor to person
+        person: {
             id: cast.actor.id,
             name: cast.actor.name,
-            bio: '' // Actor model does not have bio, you can leave empty
+            bio: ''
         }
         })) || [],
-        // Add searchable text field for better search
         searchText: [
         movie.title,
         movie.description,

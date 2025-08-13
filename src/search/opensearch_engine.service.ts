@@ -1,9 +1,8 @@
-// src/search/opensearch_engine.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { Client } from '@opensearch-project/opensearch';
 import { ConfigService } from '@nestjs/config';
 import { MovieType } from '@prisma/client';
-import { QueryParserService } from './services/query-parser.service';
+import { QueryParserService } from './services/query_parser.service';
 import { SearchResult, SearchCriteria, CleanMovie } from 'src/interfaces/search.interface';
 
 
@@ -48,20 +47,16 @@ export class OpenSearchEngineService {
     page: number = 1,
     limit: number = 10,
   ): Promise<SearchResult> {
-    console.log('🔍 OpenSearchEngine query:', { query, type, page, limit });
 
     try {
       const offset = (page - 1) * limit;
       let searchBody: any;
 
       if (query && query.trim().length >= 2) {
-        // Parse NLP query
         const criteria = this.queryParser.parseQuery(query.trim());
-        console.log('📝 Parsed criteria:', criteria);
         
         searchBody = this.buildOpenSearchQuery(criteria, type);
       } else {
-        // Default query for top rated
         searchBody = this.buildTopRatedQuery(type);
       }
 
@@ -80,8 +75,6 @@ export class OpenSearchEngineService {
       const total = typeof response.body.hits.total === 'number' 
         ? response.body.hits.total 
         : response.body.hits.total?.value || 0;
-
-      console.log(`📊 OpenSearch results: ${hits.length} hits, ${total} total`);
 
       const movies = hits.map((hit: any) => this.transformOpenSearchHit(hit));
 
@@ -130,7 +123,7 @@ export class OpenSearchEngineService {
       return {
         movies,
         total,
-        page, // return the same page (0-based)
+        page,
         totalPages: Math.ceil(total / limit),
       };
 
@@ -140,137 +133,184 @@ export class OpenSearchEngineService {
     }
   }
 
+// Replace your buildOpenSearchQuery method with this version that has detailed logging:
 
+private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {   
+  console.log('🔨 === BUILDING OPENSEARCH QUERY ===');
+  console.log('🔨 Input criteria:', JSON.stringify(criteria, null, 2));
+  console.log('🔨 Type filter:', type);
+  
+  const mustClauses: any[] = [];
+  console.log('📋 Initial mustClauses length:', mustClauses.length);
+  
+  if (type) {
+    mustClauses.push({
+      term: { type: type }
+    });
+    console.log('✅ Added type filter, mustClauses length:', mustClauses.length);
+  }
 
-  private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {
-    const mustClauses: any[] = [];
-    const shouldClauses: any[] = [];
+  if (criteria.minRating !== undefined) {
+    mustClauses.push({
+      range: {
+        averageRating: { gte: criteria.minRating }
+      }
+    });
+    console.log('✅ Added min rating filter, mustClauses length:', mustClauses.length);
+  }
 
-    // Type filter
-    if (type) {
-      mustClauses.push({
-        term: { type: type }
-      });
-    }
+  if (criteria.maxRating !== undefined) {
+    mustClauses.push({
+      range: {
+        averageRating: { lte: criteria.maxRating }
+      }
+    });
+    console.log('✅ Added max rating filter, mustClauses length:', mustClauses.length);
+  }
 
-    // Rating filters
-    if (criteria.minRating !== undefined) {
-      mustClauses.push({
-        range: {
-          averageRating: { gte: criteria.minRating }
-        }
-      });
-    }
+  if (criteria.afterYear) {
+    mustClauses.push({
+      range: {
+        releaseDate: { gte: `${criteria.afterYear}-01-01` }
+      }
+    });
+    console.log('✅ Added after year filter, mustClauses length:', mustClauses.length);
+  }
 
-    if (criteria.maxRating !== undefined) {
-      mustClauses.push({
-        range: {
-          averageRating: { lte: criteria.maxRating }
-        }
-      });
-    }
+  if (criteria.beforeYear) {
+    mustClauses.push({
+      range: {
+        releaseDate: { lt: `${criteria.beforeYear + 1}-01-01` }
+      }
+    });
+    console.log('✅ Added before year filter, mustClauses length:', mustClauses.length);
+  }
 
-    // Year filters
-    if (criteria.afterYear) {
-      mustClauses.push({
-        range: {
-          releaseDate: { gte: `${criteria.afterYear}-01-01` }
-        }
-      });
-    }
+  const currentYear = new Date().getFullYear();
+  
+  if (criteria.olderThanYears) {
+    const cutoffYear = currentYear - criteria.olderThanYears;
+    mustClauses.push({
+      range: {
+        releaseDate: { lt: `${cutoffYear}-01-01` }
+      }
+    });
+    console.log('✅ Added older than filter, mustClauses length:', mustClauses.length);
+  }
 
-    if (criteria.beforeYear) {
-      mustClauses.push({
-        range: {
-          releaseDate: { lt: `${criteria.beforeYear + 1}-01-01` }
-        }
-      });
-    }
+  if (criteria.newerThanYears) {
+    const cutoffYear = currentYear - criteria.newerThanYears;
+    mustClauses.push({
+      range: {
+        releaseDate: { gte: `${cutoffYear}-01-01` }
+      }
+    });
+    console.log('✅ Added newer than filter, mustClauses length:', mustClauses.length);
+  }
 
-    // Age-based filters
-    const currentYear = new Date().getFullYear();
+  if (criteria.textQuery && criteria.textQuery.trim().length > 0) {
+    const textQuery = criteria.textQuery.toLowerCase().trim();
+
+    const textSearchQuery = {
+      bool: {
+        should: [
+          {
+            match_phrase: {
+              title: {
+                query: textQuery,
+                boost: 10
+              }
+            }
+          },
+          
+          {
+            prefix: {
+              title: {
+                value: textQuery,
+                boost: 8
+              }
+            }
+          },
+          
+          {
+            match_phrase: {
+              description: {
+                query: textQuery,
+                boost: 7
+              }
+            }
+          },
+
+          {
+            prefix: {
+              description: {
+                value: textQuery,
+                boost: 5
+              }
+            }
+          },
+
+          {
+            match_phrase: {
+              cast: {
+                query: textQuery,
+                boost: 3
+              }
+            }
+          },
+
+          {
+            prefix: {
+              cast: {
+                value: textQuery,
+                boost: 2
+              }
+            }
+          }
+        ],
+        minimum_should_match: 1
+      }
+    };
     
-    if (criteria.olderThanYears) {
-      const cutoffYear = currentYear - criteria.olderThanYears;
+    
+    mustClauses.push(textSearchQuery);
+
+  }
+
+  if (criteria.castNames && criteria.castNames.length > 0) {
+    criteria.castNames.forEach(name => {
       mustClauses.push({
-        range: {
-          releaseDate: { lt: `${cutoffYear}-01-01` }
-        }
-      });
-    }
-
-    if (criteria.newerThanYears) {
-      const cutoffYear = currentYear - criteria.newerThanYears;
-      mustClauses.push({
-        range: {
-          releaseDate: { gte: `${cutoffYear}-01-01` }
-        }
-      });
-    }
-
-    // Text search with boosting
-    if (criteria.textQuery) {
-      shouldClauses.push(
-        {
-          match: {
-            title: {
-              query: criteria.textQuery,
-              boost: 3
-            }
-          }
-        },
-        {
-          match: {
-            description: {
-              query: criteria.textQuery,
-              boost: 2
-            }
-          }
-        },
-        {
-          match: {
-            cast: {
-              query: criteria.textQuery,
-              boost: 1.5
-            }
+        match: {
+          cast: {
+            query: name,
+            boost: 2,
+            fuzziness: 'AUTO'
           }
         }
-      );
-    }
-
-    // Cast name search
-    if (criteria.castNames?.length) {
-      criteria.castNames.forEach(name => {
-        shouldClauses.push({
-          match: {
-            cast: {
-              query: name,
-              boost: 2
-            }
-          }
-        });
       });
+    });
     }
 
     const boolQuery: any = {
-      bool: {
-        must: mustClauses.length > 0 ? mustClauses : [{ match_all: {} }],
-      }
+      bool: {}
     };
 
-    if (shouldClauses.length > 0) {
-      boolQuery.bool.should = shouldClauses;
-      boolQuery.bool.minimum_should_match = 1;
+    if (mustClauses.length > 0) {
+      boolQuery.bool.must = mustClauses;
+    } else {
+      boolQuery.bool.must_not = [{ match_all: {} }];
     }
 
-    return {
+    const finalQuery = {
       query: boolQuery,
       sort: [
+        { _score: { order: 'desc' } },       
         { averageRating: { order: 'desc' } },
-        { ratingCount: { order: 'desc' } },
-        { _score: { order: 'desc' } }
+        { ratingCount: { order: 'desc' } }  
       ]
     };
+    
+    return finalQuery;
   }
 
   private buildTopRatedQuery(type?: MovieType) {
@@ -297,8 +337,6 @@ export class OpenSearchEngineService {
 
   private transformOpenSearchHit(hit: any): CleanMovie {
     const source = hit._source as OpenSearchMovie;
-    
-    // Parse cast string back to array format
     const casts = source.cast 
       ? source.cast.split(' ').filter(name => name.trim()).map((name, index) => ({
           actor: { name: name.trim() },
@@ -310,7 +348,7 @@ export class OpenSearchEngineService {
       id: source.id,
       title: source.title,
       description: source.description,
-      coverUrl: undefined, // OpenSearch doesn't store cover URLs
+      coverUrl: undefined,
       releaseDate: new Date(source.releaseDate),
       type: source.type,
       avgRating: source.averageRating || 0,
@@ -319,7 +357,6 @@ export class OpenSearchEngineService {
     };
   }
 
-  // Index management methods
   async createIndex() {
     try {
       const exists = await this.client.indices.exists({ index: this.indexName });
@@ -374,7 +411,6 @@ export class OpenSearchEngineService {
         ignore_unavailable: true,
       });
       
-      // Recreate the index with mapping
       await this.createIndex();
     } catch (error) {
       console.error('Error clearing index:', error);
@@ -382,17 +418,6 @@ export class OpenSearchEngineService {
     }
   }
 
-  async getDocumentCount(): Promise<number> {
-    try {
-      const result = await this.client.count({
-        index: this.indexName,
-      });
-      return result.body.count;
-    } catch (error) {
-      console.error('Error getting document count:', error);
-      return 0;
-    }
-  }
   async getMovieById(movieId: number): Promise<any> {
     try {
       const result = await this.client.get({
@@ -404,40 +429,6 @@ export class OpenSearchEngineService {
       if (error.statusCode === 404) {
         return null;
       }
-      throw error;
-    }
-  }
-  async updateMovieActors(movieId: number, actor: any): Promise<void> {
-    try {
-      // Get current document
-      const current = await this.getMovieById(movieId);
-      if (!current) return;
-
-      // Update actors array
-      if (!current.actors) {
-        current.actors = [];
-      }
-      
-
-      const existingActorIndex = current.actors.findIndex((a: any) => a.id === actor.id);
-      if (existingActorIndex >= 0) {
-        current.actors[existingActorIndex] = actor;
-      } else {
-        current.actors.push(actor);
-      }
-
-    
-      await this.client.update({
-        index: this.indexName,
-        id: movieId.toString(),
-        body: {
-          doc: {
-            actors: current.actors,
-          },
-        },
-      });
-    } catch (error) {
-      console.error(`Error updating movie actors for ${movieId}:`, error);
       throw error;
     }
   }
@@ -493,15 +484,6 @@ export class OpenSearchEngineService {
     }
   }
 
-  async getTotalDocuments(index: string): Promise<number> {
-    try {
-      const response = await this.client.count({ index });
-      return response.body.count;
-    } catch (error) {
-      console.error(`Failed to count documents in ${index}:`, error);
-      return 0;
-    }
-  }
 
   async bulkIndexMovies(movies: any[]) {
     if (movies.length === 0) return;
@@ -558,17 +540,6 @@ export class OpenSearchEngineService {
       this.logger.log(`Updated rating for movie ${movieId}`);
     } catch (error) {
       this.logger.error('Error updating movie rating:', error);
-      // Don't throw - rating update should not fail if search index update fails
-    }
-  }
-
-  async deleteIndex() {
-    try {
-      await this.client.indices.delete({ index: this.indexName });
-      this.logger.log('Index deleted successfully');
-    } catch (error) {
-      this.logger.error('Error deleting index:', error);
-      throw error;
     }
   }
 

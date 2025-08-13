@@ -34,7 +34,6 @@ export type MovieWithCasts = {
   updatedAt: Date;
 };
 
-// Clean interface for API responses
 export interface CleanMovie {
   id: number;
   title: string;
