@@ -413,21 +413,6 @@ private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {
     }
   }
 
-  async getMovieById(movieId: number): Promise<any> {
-    try {
-      const result = await this.client.get({
-        index: this.indexName,
-        id: movieId.toString(),
-      });
-      return result.body._source;
-    } catch (error) {
-      if (error.statusCode === 404) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
   async indexMovie(movie: any) {
     try {
       await this.client.index({
