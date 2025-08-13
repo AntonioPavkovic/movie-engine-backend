@@ -121,7 +121,6 @@ export class MoviesController {
     console.log('Page:', page);
     console.log('Limit:', limit);
 
-    // Parse and validate parameters
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
 
@@ -133,7 +132,6 @@ export class MoviesController {
       throw new HttpException('Limit must be between 1 and 50', HttpStatus.BAD_REQUEST);
     }
 
-    // Validate type if provided
     if (type && !Object.values(MovieType).includes(type)) {
       throw new HttpException('Invalid type. Must be MOVIE or TV_SHOW', HttpStatus.BAD_REQUEST);
     }
@@ -141,7 +139,6 @@ export class MoviesController {
     try {
       console.log('Calling OpenSearch service with correct parameters...');
       
-      // Call with correct parameter order: query, type, page, limit
       const result = await this.openSearchService.searchMovies(
         query,
         type,
@@ -206,7 +203,7 @@ export class MoviesController {
         data: {
           movies: result.movies,
           total: result.total,
-          page: clientPage,               // return client page as-is (0-based)
+          page: clientPage, 
           totalPages: Math.ceil(result.total / limitNum),
           hasMore
         },
