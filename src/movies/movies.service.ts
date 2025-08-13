@@ -33,24 +33,6 @@ export class MoviesService {
     };
   }
 
-  async getMovieByIdWithRatings(id: number) {
-    const movie = await this.prisma.movie.findUnique({
-      where: { id },
-      include: { 
-        casts: { include: { actor: true } },
-        ratings: {
-          select: {
-            stars: true, 
-            createdAt: true,
-            sourceId: true
-          }
-        }
-      },
-    });
-    if (!movie) throw new NotFoundException('Movie not found');
-    return movie;
-  }
-
   async getMovieById(id: number) {
     const movie = await this.prisma.movie.findUnique({
       where: { id },

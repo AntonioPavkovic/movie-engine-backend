@@ -227,29 +227,9 @@ export class MoviesController {
         movieId: id,
         stars: rateMovieDto.stars,
       });
-
-      const updatedMovie = await this.moviesService.getMovieByIdWithRatings(id);
-
       return {
         success: true,
         message: 'Anonymous rating submitted successfully',
-        data: {
-          rating: {
-            stars: ratingResult.stars,
-            movieId: ratingResult.movieId,
-            createdAt: ratingResult.createdAt
-          },
-          movie: {
-            id: updatedMovie.id,
-            title: updatedMovie.title,
-            avgRating: updatedMovie.avgRating,
-            ratingsCount: updatedMovie.ratingsCount,
-            description: updatedMovie.description,
-            releaseDate: updatedMovie.releaseDate,
-            type: updatedMovie.type,
-            casts: updatedMovie.casts
-          }
-        }
       };
     } catch (error: any) {
       throw new BadRequestException(`Rating failed: ${error.message}`);

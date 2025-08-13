@@ -1,7 +1,7 @@
 ## Description
 
 Movie Engine is an app that allows users to lookup, search and rate movies.
-the backend is built with NestJS and Pisma as and ORM, PostgreSQL as a DB and OpenSearch for searching capabilities
+The backend is built with NestJS and Pisma as and ORM, PostgreSQL as a DB and OpenSearch for searching capabilities.
 
 ## Project setup
 
@@ -24,22 +24,7 @@ docker-compose up -d
 
 which will pull the requirements such as db and opensearch.
 
-Create an .env setup with the following
-DATABASE_URL="url"
-
-REDIS_URL=url
-WORKER_CONSUMER_GROUP=worker group
-STREAM_KEY=stream key
-
-API_KEY = api_key
-
-OPENSEARCH_URL=url
-OPENSEARCH_USERNAME=user  
-OPENSEARCH_PASSWORD=pass
-
-GOOGLE_CLIENT_ID = clientid
-GOOGLE_SECRET = secret
-GOOGLE_CALLBACK_URL = callback url
+For the purpuses of testing this app .env file will be provided in this repository
 
 After that run:
 
@@ -63,41 +48,8 @@ POST {{baseUrl}}/movies/sync/start
 $ npm run start:dev
 ```
 
-## Endpoints and Disclaimer
+## Endpoints
 
-```bash
-X-API-Key
-```
+- OpenAPI specification is provided on localhost:8080//api
 
-Header is required for all the following routes
-
-
-- Example endpoint for fetching paginated movies or TV shows
-
-```bash
-GET {{baseUrl}}/movies/top?type=MOVIE&limit=10&page=0
-```
-
-- Example endpoint for fetching a movie or tv show by id
-
-```bash
-GET {{baseUrl}}/movies/:id
-```
-
-- Example endpoint for rating a movie
-
-```bash
-POST {{baseUrl}}/movies/:id
-
-body
-
-{
-  "stars": 4
-}
-
-```
-and the search functionality endpoint is at the following endpoint
-
-```bash
-GET {{baseUrl}}/movies/search?query=example
-```
+- Every API is protected via an API token provided in env (sent as X-API-Key header)

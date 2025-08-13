@@ -5,7 +5,7 @@ import { OpenSearchEngineService } from 'src/search/opensearch_engine.service';
 
 
 interface SyncEvent {
-  operation: 'CREATE' | 'UPDATE' | 'DELETE';
+  operation: 'CREATE';
   entity: 'movie' | 'rating' | 'cast';
   entityId: number;
   data?: any;
@@ -99,15 +99,6 @@ export class DataSyncService implements OnModuleInit {
 
   private async syncMovieToOpenSearch(movieId: number, events: SyncEvent[]) {
     try {
-
-      const hasDeleteEvent = events.some(e => e.operation === 'DELETE' && e.entity === 'movie');
-      
-      if (hasDeleteEvent) {
-        this.logger.log(`Movie ${movieId} deleted - OpenSearch cleanup would be needed`);
-
-        return;
-      }
-
       const movie = await this.getMovieForSync(movieId);
       
       if (!movie) {
@@ -190,7 +181,7 @@ export class DataSyncService implements OnModuleInit {
   }
 
 
-  async   performFullSync() {
+  async performFullSync() {
     this.logger.log('Starting full synchronization...');
     
     try {
@@ -243,34 +234,6 @@ export class DataSyncService implements OnModuleInit {
       this.logger.log(`Full sync completed. Synced ${totalSynced} movies total.`);
     } catch (error) {
       this.logger.error('Full sync failed:', error);
-      throw error;
-    }
-  }
-
-  async getSyncStatus() {
-    try {
-      const [pgCount, osCount, lastSync] = await Promise.all([
-        this.prisma.movie.count(),
-        this.getOpenSearchDocumentCount(),
-        this.redis.get('last_incremental_sync')
-      ]);
-
-      return {
-        postgresql: {
-          totalMovies: pgCount
-        },
-        opensearch: {
-          totalMovies: osCount,
-          indexExists: await this.openSearch.checkIndexExists()
-        },
-        sync: {
-          inSync: pgCount === osCount,
-          lastIncrementalSync: lastSync ? new Date(lastSync) : null,
-          isProcessing: this.isProcessing
-        }
-      };
-    } catch (error) {
-      this.logger.error('Failed to get sync status:', error);
       throw error;
     }
   }

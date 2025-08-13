@@ -60,7 +60,7 @@ export class OpenSearchEngineService {
         searchBody = this.buildTopRatedQuery(type);
       }
 
-      console.log('🚀 OpenSearch query body:', JSON.stringify(searchBody, null, 2));
+      console.log('OpenSearch query body:', JSON.stringify(searchBody, null, 2));
 
       const response = await this.client.search({
         index: this.indexName,
@@ -133,21 +133,16 @@ export class OpenSearchEngineService {
     }
   }
 
-// Replace your buildOpenSearchQuery method with this version that has detailed logging:
-
 private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {   
-  console.log('🔨 === BUILDING OPENSEARCH QUERY ===');
-  console.log('🔨 Input criteria:', JSON.stringify(criteria, null, 2));
-  console.log('🔨 Type filter:', type);
-  
+
   const mustClauses: any[] = [];
-  console.log('📋 Initial mustClauses length:', mustClauses.length);
+  console.log('Initial mustClauses length:', mustClauses.length);
   
   if (type) {
     mustClauses.push({
       term: { type: type }
     });
-    console.log('✅ Added type filter, mustClauses length:', mustClauses.length);
+    console.log('Added type filter, mustClauses length:', mustClauses.length);
   }
 
   if (criteria.minRating !== undefined) {
@@ -156,7 +151,7 @@ private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {
         averageRating: { gte: criteria.minRating }
       }
     });
-    console.log('✅ Added min rating filter, mustClauses length:', mustClauses.length);
+    console.log('Added min rating filter, mustClauses length:', mustClauses.length);
   }
 
   if (criteria.maxRating !== undefined) {
@@ -165,7 +160,7 @@ private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {
         averageRating: { lte: criteria.maxRating }
       }
     });
-    console.log('✅ Added max rating filter, mustClauses length:', mustClauses.length);
+    console.log('Added max rating filter, mustClauses length:', mustClauses.length);
   }
 
   if (criteria.afterYear) {
@@ -174,7 +169,7 @@ private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {
         releaseDate: { gte: `${criteria.afterYear}-01-01` }
       }
     });
-    console.log('✅ Added after year filter, mustClauses length:', mustClauses.length);
+    console.log('Added after year filter, mustClauses length:', mustClauses.length);
   }
 
   if (criteria.beforeYear) {
@@ -183,7 +178,7 @@ private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {
         releaseDate: { lt: `${criteria.beforeYear + 1}-01-01` }
       }
     });
-    console.log('✅ Added before year filter, mustClauses length:', mustClauses.length);
+    console.log('Added before year filter, mustClauses length:', mustClauses.length);
   }
 
   const currentYear = new Date().getFullYear();
@@ -195,7 +190,7 @@ private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {
         releaseDate: { lt: `${cutoffYear}-01-01` }
       }
     });
-    console.log('✅ Added older than filter, mustClauses length:', mustClauses.length);
+    console.log('Added older than filter, mustClauses length:', mustClauses.length);
   }
 
   if (criteria.newerThanYears) {

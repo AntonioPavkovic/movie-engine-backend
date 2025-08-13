@@ -45,27 +45,28 @@ export class RatingCacheService {
     return stats;
   }
 
-  async invalidateCache(movieId: number): Promise<void> {
-    const cacheKey = `${this.CACHE_PREFIX}${movieId}`;
-    await this.redis.del(cacheKey);
-    this.logger.debug(`Invalidated cache for movie ${movieId}`);
-  }
-
   private async calculateStatsFromDatabase(movieId: number): Promise<MovieStats | null> {
     try {
       const movie = await this.prisma.movie.findUnique({
         where: { id: movieId },
-        select: { id: true, avgRating: true, ratingsCount: true },
+        select: { id: true }
       });
 
       if (!movie) {
         return null;
       }
 
-      const ratings = await this.prisma.rating.findMany({
-        where: { movieId },
-        select: { stars: true },
-      });
+      const [ratings, stats] = await Promise.all([
+        this.prisma.rating.findMany({
+          where: { movieId },
+          select: { stars: true },
+        }),
+        this.prisma.rating.aggregate({
+          where: { movieId },
+          _avg: { stars: true },
+          _count: { stars: true }
+        })
+      ]);
 
       const ratingDistribution = ratings.reduce(
         (dist, rating) => {
@@ -75,12 +76,8 @@ export class RatingCacheService {
         { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
       );
 
-      const totalRatings = movie.ratingsCount || ratings.length;
-      const avgRating = movie.avgRating || (
-        ratings.length > 0 
-          ? Number((ratings.reduce((sum, r) => sum + r.stars, 0) / ratings.length).toFixed(2))
-          : 0
-      );
+      const avgRating = stats._avg.stars ? Number(stats._avg.stars.toFixed(2)) : 0;
+      const totalRatings = stats._count.stars;
 
       return {
         movieId,

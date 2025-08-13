@@ -22,8 +22,7 @@ export class ApiKeyGuard implements CanActivate {
     const validApiKey = this.configService.get<string>('API_KEY');
     
     if (!validApiKey) {
-      console.warn('⚠️  No API_KEY configured in environment.');
-      return true;
+      return false;
     }
     
     if (apiKey !== validApiKey) {

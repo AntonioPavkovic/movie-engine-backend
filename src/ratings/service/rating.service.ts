@@ -41,8 +41,6 @@ export class RatingService {
         },
       });
 
-      await this.cacheService.invalidateCache(dto.movieId);
-
       await this.emitRatingEvent({
         movieId: dto.movieId,
         ratingId: rating.id,
