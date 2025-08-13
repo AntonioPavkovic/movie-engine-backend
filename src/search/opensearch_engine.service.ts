@@ -100,25 +100,29 @@ export class OpenSearchEngineService {
 
   async getTopRatedMovies(
     type?: MovieType,
+    page: number = 0,  
     limit: number = 10,
   ): Promise<SearchResult> {
-    console.log('🎬 Getting top rated movies from OpenSearch:', { type, limit });
+    console.log('🎬 Getting top rated movies from OpenSearch:', { type, page, limit });
 
     try {
+      const offset = Math.max(0, page) * limit; 
       const searchBody = this.buildTopRatedQuery(type);
+
+      console.log('OpenSearch getTopRatedMovies offset/from:', offset);
 
       const response = await this.client.search({
         index: this.indexName,
         body: {
           ...searchBody,
-          from: 0,
+          from: offset,
           size: limit,
         } as any,
       });
 
       const hits = response.body.hits.hits;
-      const total = typeof response.body.hits.total === 'number' 
-        ? response.body.hits.total 
+      const total = typeof response.body.hits.total === 'number'
+        ? response.body.hits.total
         : response.body.hits.total?.value || 0;
 
       const movies = hits.map((hit: any) => this.transformOpenSearchHit(hit));
@@ -126,7 +130,7 @@ export class OpenSearchEngineService {
       return {
         movies,
         total,
-        page: 1,
+        page, // return the same page (0-based)
         totalPages: Math.ceil(total / limit),
       };
 
@@ -135,6 +139,7 @@ export class OpenSearchEngineService {
       throw new Error(`Failed to get top rated movies: ${error.message}`);
     }
   }
+
 
 
   private buildOpenSearchQuery(criteria: SearchCriteria, type?: MovieType) {

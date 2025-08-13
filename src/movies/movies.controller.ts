@@ -44,7 +44,7 @@ export class MoviesController {
       const syncOptions: SyncOptions = {
         batchSize: options?.batchSize || 100,
         deleteExisting: options?.deleteExisting || false,
-        syncRatings: options?.syncRatings !== false // default true
+        syncRatings: options?.syncRatings !== false 
       };
 
       const result = await this.syncService.startSync(syncOptions);
@@ -180,53 +180,42 @@ export class MoviesController {
   
   @Get('top')
   async getTopMovies(
-    @Query('limit') limit = '10', 
+    @Query('limit') limit = '10',
     @Query('type') type?: MovieType,
-    @Query('page') page = '1'  
+    @Query('page') page = '0' 
   ) {
-    const limitNum = parseInt(limit, 10) || 10;
-    const pageNum = parseInt(page, 10) || 1;
-    
-    console.log('Top movies request:', { limit: limitNum, type, page: pageNum });
-
-    if (pageNum < 1) {
-      throw new HttpException('Page must be greater than 0', HttpStatus.BAD_REQUEST);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
+    const clientPage = parseInt(page, 10);
+    if (Number.isNaN(clientPage) || clientPage < 0) {
+      throw new HttpException('Page must be a non-negative integer', HttpStatus.BAD_REQUEST);
     }
 
-    if (limitNum < 1 || limitNum > 50) {
-      throw new HttpException('Limit must be between 1 and 50', HttpStatus.BAD_REQUEST);
-    }
+    const servicePage = Math.max(0, clientPage);
 
     if (type && !Object.values(MovieType).includes(type)) {
       throw new HttpException('Invalid type. Must be MOVIE or TV_SHOW', HttpStatus.BAD_REQUEST);
     }
-    
+
     try {
-      let result;
-      
-      if (pageNum === 1) {
-        result = await this.openSearchService.getTopRatedMovies(type, limitNum);
-      } else {
-        result = await this.openSearchService.searchMovies(undefined, type, pageNum, limitNum);
-      }
-      
-      console.log('Top movies result:', {
-        moviesCount: result.movies.length,
-        total: result.total,
-        page: result.page,
-        totalPages: result.totalPages
-      });
-      
-      // Return consistent format that matches search endpoint
+      const result = await this.openSearchService.getTopRatedMovies(type, servicePage, limitNum);
+
+      const hasMore = (servicePage + 1) * limitNum < result.total;
+
       return {
         success: true,
-        data: result,
+        data: {
+          movies: result.movies,
+          total: result.total,
+          page: clientPage,               // return client page as-is (0-based)
+          totalPages: Math.ceil(result.total / limitNum),
+          hasMore
+        },
         message: `Found ${result.total} top ${type ? type.toLowerCase().replace('_', ' ') + 's' : 'movies and TV shows'}`
       };
     } catch (error: any) {
       console.error('Top movies error:', error);
       throw new HttpException(
-        `Failed to get top movies: ${error.message}`, 
+        `Failed to get top movies: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
