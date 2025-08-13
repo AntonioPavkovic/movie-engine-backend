@@ -100,11 +100,4 @@ and the search functionality endpoint is at the following endpoint
 
 ```bash
 GET {{baseUrl}}/movies/search?query=example
-
-body
-
-{
-  "stars": 4
-}
-
 ```
