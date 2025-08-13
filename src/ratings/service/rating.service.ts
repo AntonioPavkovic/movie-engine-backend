@@ -1,316 +1,339 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import { RedisService } from 'src/redis/redis.service';
-import { CreateRatingDto } from '../dto/rating.dto';
-import { MovieRatingStatsDto } from '../dto/movie-rating-stats.dto';
-import { RatingResponseDto } from '../dto/rating-response.dto';
-import { SearchService } from 'src/search/search.service';
+import { RatingCacheService } from './rating_cache.service';
+
+interface CreateRatingDto {
+  movieId: number;
+  stars: number;
+  sourceId?: string;
+}
 
 @Injectable()
 export class RatingService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
-    private searchService: SearchService,
+    private cacheService: RatingCacheService,
   ) {}
 
-  async createAnonymousRating(data: {
-    movieId: number;
-    stars: number;
-    userIp?: string;
-  }): Promise<RatingResponseDto> {
-    const { movieId, stars } = data;
+  async createAnonymousRating(dto: CreateRatingDto) {
+    // Validate rating
+    if (dto.stars < 1 || dto.stars > 5) {
+      throw new BadRequestException('Rating must be between 1 and 5 stars');
+    }
 
+    // Check if movie exists
     const movie = await this.prisma.movie.findUnique({
-      where: { id: movieId },
+      where: { id: dto.movieId },
+      select: { id: true }
     });
 
     if (!movie) {
       throw new BadRequestException('Movie not found');
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      const rating = await tx.rating.create({
+    try {
+      // Create rating in database
+      const rating = await this.prisma.rating.create({
         data: {
-          movieId,
-          stars
+          movieId: dto.movieId,
+          stars: dto.stars,
+          sourceId: dto.sourceId || 'anonymous',
         },
       });
 
-      await this.updateMovieAggregates(tx, movieId);
+      // Invalidate cache immediately
+      await this.cacheService.invalidateCache(dto.movieId);
+
+      // Emit rating event to Redis stream
+      await this.emitRatingEvent({
+        movieId: dto.movieId,
+        ratingId: rating.id,
+        stars: dto.stars,
+        operation: 'CREATE',
+      });
 
       return rating;
-    });
-
-    await this.publishRatingEvent(movieId, stars, 'CREATE');
-
-    return {
-      id: result.id,
-      movieId: result.movieId,
-      stars: result.stars,
-      createdAt: result.createdAt,
-    };
+    } catch (error) {
+      throw new BadRequestException(`Failed to create rating: ${error.message}`);
+    }
   }
 
-  async createRating(createRatingDto: CreateRatingDto): Promise<RatingResponseDto> {
-    const { movieId, stars, sourceId } = createRatingDto;
-
-    const movie = await this.prisma.movie.findUnique({
-      where: { id: movieId },
-    });
-
-    if (!movie) {
-      throw new BadRequestException('Movie not found');
+  async updateRating(ratingId: number, stars: number) {
+    if (stars < 1 || stars > 5) {
+      throw new BadRequestException('Rating must be between 1 and 5 stars');
     }
 
-    if (sourceId) {
-      const existingRating = await this.prisma.rating.findFirst({
-        where: {
-          movieId: movieId,
-          sourceId: sourceId,
-        },
-      });
-
-      if (existingRating) {
-        throw new BadRequestException('You have already rated this movie');
-      }
-    }
-
-    const result = await this.prisma.$transaction(async (tx) => {
-  
-      const rating = await tx.rating.create({
-        data: {
-          movieId,
-          stars,
-          sourceId,
-        },
-      });
-
-      await this.updateMovieAggregates(tx, movieId);
-
-      return rating;
-    });
-
-    await this.publishRatingEvent(movieId, stars, 'CREATE');
-
-    return {
-      id: result.id,
-      movieId: result.movieId,
-      stars: result.stars,
-      createdAt: result.createdAt,
-      sourceId: result.sourceId || undefined,
-    };
-  }
-
-  async updateRating(ratingId: number, stars: number, sourceId?: string): Promise<RatingResponseDto> {
-    const existingRating = await this.prisma.rating.findUnique({
-      where: { id: ratingId },
-    });
-
-    if (!existingRating) {
-      throw new BadRequestException('Rating not found');
-    }
-
-    if (sourceId && existingRating.sourceId !== sourceId) {
-      throw new BadRequestException('Not authorized to update this rating');
-    }
-
-    const oldStars = existingRating.stars;
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      const updatedRating = await tx.rating.update({
+    try {
+      const existingRating = await this.prisma.rating.findUnique({
         where: { id: ratingId },
-        data: { stars },
+        select: { id: true, movieId: true, stars: true }
       });
 
-      await this.updateMovieAggregates(tx, existingRating.movieId);
+      if (!existingRating) {
+        throw new BadRequestException('Rating not found');
+      }
+
+      // Only update if stars actually changed
+      if (existingRating.stars === stars) {
+        return existingRating;
+      }
+
+      const updatedRating = await this.prisma.rating.update({
+        where: { id: ratingId },
+        data: { stars }
+      });
+
+      // Invalidate cache
+      await this.cacheService.invalidateCache(existingRating.movieId);
+
+      // Emit rating event
+      await this.emitRatingEvent({
+        movieId: existingRating.movieId,
+        ratingId: ratingId,
+        stars: stars,
+        operation: 'UPDATE',
+      });
 
       return updatedRating;
-    });
+    } catch (error) {
+      throw new BadRequestException(`Failed to update rating: ${error.message}`);
+    }
+  }
 
-    await this.publishRatingEvent(existingRating.movieId, stars, 'UPDATE', oldStars);
+  async deleteRating(ratingId: number) {
+    try {
+      const existingRating = await this.prisma.rating.findUnique({
+        where: { id: ratingId },
+        select: { id: true, movieId: true }
+      });
+
+      if (!existingRating) {
+        throw new BadRequestException('Rating not found');
+      }
+
+      await this.prisma.rating.delete({
+        where: { id: ratingId }
+      });
+
+      // Invalidate cache
+      await this.cacheService.invalidateCache(existingRating.movieId);
+
+      // Emit rating event
+      await this.emitRatingEvent({
+        movieId: existingRating.movieId,
+        ratingId: ratingId,
+        operation: 'DELETE',
+      });
+
+      return { success: true };
+    } catch (error) {
+      throw new BadRequestException(`Failed to delete rating: ${error.message}`);
+    }
+  }
+
+  async getMovieRatings(movieId: number, page = 0, limit = 20) {
+    const skip = page * limit;
+    
+    const [ratings, total] = await Promise.all([
+      this.prisma.rating.findMany({
+        where: { movieId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          stars: true,
+          sourceId: true,
+          createdAt: true,
+        }
+      }),
+      this.prisma.rating.count({ where: { movieId } })
+    ]);
 
     return {
-      id: result.id,
-      movieId: result.movieId,
-      stars: result.stars,
-      createdAt: result.createdAt,
-      sourceId: result.sourceId || undefined,
+      ratings,
+      total,
+      page,
+      limit,
+      hasMore: (page + 1) * limit < total
     };
   }
 
-  async getRatingsByMovie(movieId: number): Promise<RatingResponseDto[]> {
-    const ratings = await this.prisma.rating.findMany({
-      where: { movieId },
-      orderBy: { createdAt: 'desc' },
-    });
+  async getMovieRatingStats(movieId: number) {
+    try {
+      // Try to get from cache first
+      const cachedStats = await this.cacheService.getMovieStats(movieId);
+      
+      if (cachedStats) {
+        return {
+          averageRating: cachedStats.avgRating,
+          totalRatings: cachedStats.totalRatings,
+          ratingDistribution: cachedStats.ratingDistribution,
+          cached: true,
+          lastUpdated: cachedStats.lastUpdated,
+        };
+      }
 
-    return ratings.map(rating => ({
-      id: rating.id,
-      movieId: rating.movieId,
-      stars: rating.stars,
-      createdAt: rating.createdAt,
-      sourceId: rating.sourceId || undefined,
-    }));
-  }
-
-  async getMovieRatingStats(movieId: number): Promise<MovieRatingStatsDto> {
-    const cacheKey = `movie:${movieId}:stats`;
-    const cached = await this.redis.get(cacheKey);
-    
-    if (cached) {
-      return JSON.parse(cached);
-    }
-
-    const movie = await this.prisma.movie.findUnique({
-      where: { id: movieId },
-      include: {
-        ratings: {
-          select: { stars: true },
-        },
-      },
-    });
-
-    if (!movie || movie.ratings.length === 0) {
+      // Fallback: return empty stats if no ratings found
       return {
-        movieId,
         averageRating: 0,
         totalRatings: 0,
         ratingDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+        cached: false,
       };
-    }
-
-    const totalRatings = movie.ratings.length;
-    const sumRatings = movie.ratings.reduce((sum, rating) => sum + rating.stars, 0);
-    const averageRating = Number((sumRatings / totalRatings).toFixed(2));
-
-    const ratingDistribution = movie.ratings.reduce(
-      (dist, rating) => {
-        dist[rating.stars as keyof typeof dist]++;
-        return dist;
-      },
-      { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
-    );
-
-    const stats: MovieRatingStatsDto = {
-      movieId,
-      averageRating,
-      totalRatings,
-      ratingDistribution,
-    };
-
-    await this.redis.setex(cacheKey, 300, JSON.stringify(stats));
-
-    return stats;
-  }
-
-  async getUserRatingForMovie(movieId: number, sourceId: string): Promise<RatingResponseDto | null> {
-    if (!sourceId) {
-      return null;
-    }
-
-    const rating = await this.prisma.rating.findFirst({
-      where: {
-        movieId: movieId,
-        sourceId: sourceId,
-      },
-    });
-
-    if (!rating) {
-      return null;
-    }
-
-    return {
-      id: rating.id,
-      movieId: rating.movieId,
-      stars: rating.stars,
-      createdAt: rating.createdAt,
-      sourceId: rating.sourceId || undefined,
-    };
-  }
-
-  async createOrUpdateRating(createRatingDto: CreateRatingDto): Promise<RatingResponseDto> {
-    const { movieId, stars, sourceId } = createRatingDto;
-
-    if (!sourceId) {
-      return this.createRating(createRatingDto);
-    }
-
-
-    const existingRating = await this.getUserRatingForMovie(movieId, sourceId);
-
-    if (existingRating) {
-  
-      return this.updateRating(existingRating.id, stars, sourceId);
-    } else {
-
-      return this.createRating(createRatingDto);
-    }
-  }
-
-  private async updateMovieAggregates(tx: any, movieId: number) {
-    const aggregateResult = await tx.rating.aggregate({
-      where: { movieId },
-      _avg: { stars: true },
-      _count: { id: true },
-    });
-
-    const avgRating = aggregateResult._avg.stars || 0;
-    const ratingsCount = aggregateResult._count.id || 0;
-
-    await tx.movie.update({
-      where: { id: movieId },
-      data: {
-        avgRating: Number(avgRating.toFixed(2)),
-        ratingsCount,
-      },
-    });
-
-    setTimeout(async () => {
-      try {
-        await this.updateSearchIndexForMovie(movieId, avgRating, ratingsCount);
-      } catch (error) {
-        console.error(`Failed to update search index for movie ${movieId}:`, error);
-      }
-    }, 0);
-  }
-
-  private async updateSearchIndexForMovie(movieId: number, avgRating: number, ratingsCount: number) {
-    try {
-      await this.searchService.updateMovieRating(
-        movieId.toString(),
-        Number(avgRating.toFixed(2)),
-        ratingsCount
-      );
-      console.log(`Updated search index for movie ${movieId}: avgRating=${avgRating}, count=${ratingsCount}`);
     } catch (error) {
-      console.error(`Search index update failed for movie ${movieId}:`, error);
+      throw new BadRequestException(`Failed to get rating stats: ${error.message}`);
     }
   }
 
-  private async publishRatingEvent(
-    movieId: number,
-    newStars: number,
-    action: 'CREATE' | 'UPDATE' | 'DELETE',
-    oldStars?: number,
-  ) {
-    const event = {
-      movieId,
-      newStars,
-      oldStars,
-      action,
-      timestamp: new Date().toISOString(),
-    };
+  /**
+   * Batch operations for efficiency
+   */
+  async createBulkRatings(ratings: CreateRatingDto[]) {
+    if (ratings.length === 0) return [];
 
+    // Validate all ratings
+    const invalidRatings = ratings.filter(r => r.stars < 1 || r.stars > 5);
+    if (invalidRatings.length > 0) {
+      throw new BadRequestException('All ratings must be between 1 and 5 stars');
+    }
+
+    // Get unique movie IDs to validate
+    const movieIds = [...new Set(ratings.map(r => r.movieId))];
+    const existingMovies = await this.prisma.movie.findMany({
+      where: { id: { in: movieIds } },
+      select: { id: true }
+    });
+
+    const existingMovieIds = new Set(existingMovies.map(m => m.id));
+    const invalidMovieIds = movieIds.filter(id => !existingMovieIds.has(id));
+    
+    if (invalidMovieIds.length > 0) {
+      throw new BadRequestException(`Movies not found: ${invalidMovieIds.join(', ')}`);
+    }
+
+    try {
+      // Create ratings in batch
+      const createdRatings = await this.prisma.rating.createMany({
+        data: ratings.map(r => ({
+          movieId: r.movieId,
+          stars: r.stars,
+          sourceId: r.sourceId || 'anonymous',
+        }))
+      });
+
+      // Invalidate cache for affected movies
+      await this.cacheService.batchInvalidateCache(movieIds);
+
+      // Emit events for all affected movies
+      const eventPromises = movieIds.map(movieId => 
+        this.emitRatingEvent({
+          movieId,
+          ratingId: 0, // Bulk operation
+          operation: 'CREATE',
+        })
+      );
+
+      await Promise.allSettled(eventPromises);
+
+      return createdRatings;
+    } catch (error) {
+      throw new BadRequestException(`Failed to create bulk ratings: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get top rated movies with caching
+   */
+  async getTopRatedMovies(limit = 10, useCache = true) {
+    const movies = await this.prisma.movie.findMany({
+      orderBy: [
+        { avgRating: 'desc' },
+        { ratingsCount: 'desc' }
+      ],
+      take: limit,
+      select: {
+        id: true,
+        title: true,
+        avgRating: true,
+        ratingsCount: true,
+      }
+    });
+
+    // Optionally enhance with cached detailed stats
+    if (useCache) {
+      const enhancedMovies = await Promise.allSettled(
+        movies.map(async (movie) => {
+          const stats = await this.cacheService.getMovieStats(movie.id);
+          return {
+            ...movie,
+            ratingDistribution: stats?.ratingDistribution || { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+          };
+        })
+      );
+
+      return enhancedMovies
+        .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled')
+        .map(result => result.value);
+    }
+
+    return movies;
+  }
+
+  private async emitRatingEvent(event: {
+    movieId: number;
+    ratingId: number;
+    stars?: number;
+    operation: 'CREATE' | 'UPDATE' | 'DELETE';
+  }) {
     try {
       await this.redis.xadd(
         'rating-events',
         '*',
         'data',
-        JSON.stringify(event),
+        JSON.stringify({
+          ...event,
+          timestamp: new Date().toISOString(),
+        })
       );
     } catch (error) {
-      console.error('Failed to publish rating event:', error);
+      // Log but don't throw - rating was already saved to DB
+      console.error('Failed to emit rating event:', error);
+    }
+  }
+
+  /**
+   * Health check for rating system
+   */
+  async getSystemHealth() {
+    try {
+      const [dbCount, streamInfo, cacheStats] = await Promise.allSettled([
+        this.prisma.rating.count(),
+        this.redis.xinfo('STREAM', 'rating-events'),
+        this.cacheService.getCacheStats(),
+      ]);
+
+      return {
+        database: {
+          status: dbCount.status === 'fulfilled' ? 'healthy' : 'error',
+          totalRatings: dbCount.status === 'fulfilled' ? dbCount.value : 0,
+        },
+        stream: {
+          status: streamInfo.status === 'fulfilled' ? 'healthy' : 'error',
+          info: streamInfo.status === 'fulfilled' ? streamInfo.value : null,
+        },
+        cache: {
+          status: cacheStats.status === 'fulfilled' ? 'healthy' : 'error',
+          stats: cacheStats.status === 'fulfilled' ? cacheStats.value : null,
+        },
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        error: error.message,
+      };
     }
   }
 }

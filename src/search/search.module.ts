@@ -1,16 +1,9 @@
-import { Module, OnModuleInit } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { SearchService } from './search.service';
+import { Module } from '@nestjs/common';
+import { OpenSearchEngineService } from './opensearch_engine.service';
+import { QueryParserService } from './services/query-parser.service';
 
 @Module({
-  imports: [ConfigModule],
-  providers: [SearchService],
-  exports: [SearchService], 
+  providers: [OpenSearchEngineService, QueryParserService],
+  exports: [OpenSearchEngineService],
 })
-export class SearchModule implements OnModuleInit {
-  constructor(private searchService: SearchService) {}
-
-  async onModuleInit() {
-    await this.searchService.createIndex();
-  }
-}
+export class SearchModule {}

@@ -13,12 +13,12 @@ import {
   HttpStatus 
 } from '@nestjs/common';
 import { MoviesService } from './movies.service';
-import { SearchMovieDTO } from './dto/search_movie.dto';
 import { RatingService } from 'src/ratings/service/rating.service';
 import { ApiKeyGuard } from 'src/auth/guards/api-key.guard';
-import { OpenSearchService } from 'src/search/opensearch.service';
 import { MovieType } from '@prisma/client';
 import { QueryParserService } from 'src/search/services/query-parser.service';
+import { OpenSearchEngineService } from 'src/search/opensearch_engine.service';
+import { InitialSyncService, SyncOptions } from 'src/sync/initial_sync.service';
 
 @Controller('movies')
 @UseGuards(ApiKeyGuard)
@@ -26,16 +26,69 @@ export class MoviesController {
   constructor(
     private readonly moviesService: MoviesService,
     private readonly ratingService: RatingService,
-    private readonly openSearchService: OpenSearchService,
-    private readonly queryParser: QueryParserService
+    private readonly openSearchService: OpenSearchEngineService,
+    private readonly queryParser: QueryParserService,
+    private readonly syncService: InitialSyncService
   ) {}
   
+
+  @Post('sync/start')
+  async startDataSync(
+    @Body() options?: {
+      batchSize?: number;
+      deleteExisting?: boolean;
+      syncRatings?: boolean;
+    }
+  ) {
+    try {
+      const syncOptions: SyncOptions = {
+        batchSize: options?.batchSize || 100,
+        deleteExisting: options?.deleteExisting || false,
+        syncRatings: options?.syncRatings !== false // default true
+      };
+
+      const result = await this.syncService.startSync(syncOptions);
+      
+      return {
+        success: true,
+        message: result.message,
+        syncId: result.syncId,
+        options: syncOptions,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        `Failed to start sync: ${error.message}`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
+  }
+
+  @Get('sync/status')
+  async getSyncStatus() {
+    try {
+      const status = this.syncService.getSyncStatus();
+      
+      return {
+        success: true,
+        data: status,
+        message: status.isRunning 
+          ? `Sync in progress: ${status.progress}% (${status.processedRecords}/${status.totalRecords})` 
+          : status.currentOperation === 'Sync completed'
+            ? 'Last sync completed successfully'
+            : 'No sync running',
+        timestamp: new Date().toISOString()
+      };
+    } catch (error: any) {
+      throw new HttpException(
+        `Failed to get sync status: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
   @Get('debug/parse')
   async debugQueryParsing(@Query('q') query: string) {
-console.log('=== SEARCH DEBUG ===');
-console.log('Original query:', query);
-const criteria = this.queryParser.parseQuery(query);
-console.log('Parsed criteria:', criteria);
     
     try {
       const criteria = this.queryParser.parseQuery(query);
@@ -129,14 +182,13 @@ console.log('Parsed criteria:', criteria);
   async getTopMovies(
     @Query('limit') limit = '10', 
     @Query('type') type?: MovieType,
-    @Query('page') page = '1'  // Change default to 1 for consistency
+    @Query('page') page = '1'  
   ) {
     const limitNum = parseInt(limit, 10) || 10;
     const pageNum = parseInt(page, 10) || 1;
     
     console.log('Top movies request:', { limit: limitNum, type, page: pageNum });
 
-    // Validate parameters
     if (pageNum < 1) {
       throw new HttpException('Page must be greater than 0', HttpStatus.BAD_REQUEST);
     }
@@ -145,14 +197,11 @@ console.log('Parsed criteria:', criteria);
       throw new HttpException('Limit must be between 1 and 50', HttpStatus.BAD_REQUEST);
     }
 
-    // Validate type if provided
     if (type && !Object.values(MovieType).includes(type)) {
       throw new HttpException('Invalid type. Must be MOVIE or TV_SHOW', HttpStatus.BAD_REQUEST);
     }
     
     try {
-      // For top movies, if page is 1, use getTopRatedMovies for better performance
-      // Otherwise, use searchMovies with pagination
       let result;
       
       if (pageNum === 1) {
@@ -178,23 +227,6 @@ console.log('Parsed criteria:', criteria);
       console.error('Top movies error:', error);
       throw new HttpException(
         `Failed to get top movies: ${error.message}`, 
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
-
-  @Get('stats')
-  async getSearchStats() {
-    try {
-      const stats = await this.openSearchService.getSearchStats();
-      return {
-        success: true,
-        data: stats,
-        message: 'Search statistics retrieved successfully'
-      };
-    } catch (error: any) {
-      throw new HttpException(
-        `Failed to get stats: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }
