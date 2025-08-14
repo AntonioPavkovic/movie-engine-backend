@@ -80,7 +80,6 @@ export class RatingStreamConsumer implements OnModuleInit, OnModuleDestroy {
     for (const [stream, messages] of results) {
       for (const [messageId, fields] of messages) {
         try {
-          // Parse the event data
           const dataIndex = fields.findIndex((field: string) => field === 'data');
           if (dataIndex === -1 || !fields[dataIndex + 1]) {
             this.logger.warn(`Invalid message format for ${messageId}`);

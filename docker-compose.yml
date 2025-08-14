@@ -1,8 +1,7 @@
 services:
   postgres:
     image: postgres:16
-    container_name: postgres
-    restart: always
+    container_name: movies-engine-postgres
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin
@@ -14,8 +13,7 @@ services:
 
   pgadmin:
     image: dpage/pgadmin4:8
-    container_name: pgadmin
-    restart: always
+    container_name: movies-engine-pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@admin.com
       PGADMIN_DEFAULT_PASSWORD: admin
@@ -26,7 +24,7 @@ services:
 
   opensearch:
     image: opensearchproject/opensearch:2.11.1
-    container_name: opensearch
+    container_name: movies-engine-opensearch
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
@@ -43,7 +41,7 @@ services:
 
   opensearch-dashboards:
     image: opensearchproject/opensearch-dashboards:2.11.1
-    container_name: opensearch-dashboards
+    container_name: movies-engine-opensearch-dashboards
     ports:
       - "5601:5601"
     environment:
@@ -54,8 +52,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: redis
-    restart: always
+    container_name: movies-engine-redis
     ports:
       - "6379:6379"
 
