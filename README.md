@@ -26,30 +26,49 @@ which will pull the requirements such as db and opensearch.
 
 For the purpuses of testing this app .env file will be provided in this repository
 
-After that run:
+After that run the two following commands:
 
 ```bash
 npx prisma generate
 ```
- - for generating the db schema
- - go to pgadmin and run the .sql scipts provided in the root of the projects (seeders may arrive soon)
 
- Syncing with OpenSearch service currenly is done manually by making a POST request to the following api endpoing:
 
 ```bash
-POST {{baseUrl}}/movies/sync/start
+npx prisma migrate
 ```
-## DISCLAIMER
-- Calculating avg ratings and syncing PostgreSQL and Opensearch are done via Redis Streams.
+
+
+ - for generating the db schema
+ - the following images show how to connect to pgadmin if db is not visible
+
+ - firstly right click on servers to register a new server like in the shown images
+
+![App Screenshot](./assets/img1.JPG)
+
+
+![App Screenshot](./assets/img2.JPG)
+
+- in the tools tab select Query tool to run the .sql scripts provided in prisma folder of the project
+
 
 ## Compile and run the project
 
-```bash
+bash
 $ npm run start:dev
-```
+
 
 ## Endpoints
 
 - OpenAPI specification is provided on localhost:8080//api
 
 - Every API is protected via an API token provided in env (sent as X-API-Key header)
+
+## IMPORTANT NOTICE
+ Syncing with OpenSearch service currenly is done manually by making a POST request to the following api endpoing:
+
+bash
+POST {{baseUrl}}/movies/sync/start
+
+## DISCLAIMER
+- Calculating avg ratings and syncing PostgreSQL and Opensearch are done via Redis Streams.
+- .env folders are pushed simply for the reason of easier dev setup
