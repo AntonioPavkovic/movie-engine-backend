@@ -43,10 +43,10 @@ npx prisma migrate
 
  - firstly right click on servers to register a new server like in the shown images
 
-![App Screenshot](./assets/img1.JPG)
+![App Screenshot](./assets/img1.jpeg)
 
 
-![App Screenshot](./assets/img2.JPG)
+![App Screenshot](./assets/img2.jpeg)
 
 - in the tools tab select Query tool to run the .sql scripts provided in prisma folder of the project
 
