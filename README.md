@@ -5,7 +5,7 @@ The backend is built with NestJS and Pisma as and ORM, PostgreSQL as a DB and Op
 
 ## Project setup
 
-If you want to start the app you need to have the latest NodeJS LTS and Docker installed.
+If you want to start the app you need to have the latest NodeJS LTS, Docker and Postman installed.
 
 Once installed, pull the project and run 
 
@@ -64,7 +64,7 @@ $ npm run start:dev
 - Every API is protected via an API token provided in env (sent as X-API-Key header)
 
 ## IMPORTANT NOTICE
- Syncing with OpenSearch service currenly is done manually by making a POST request to the following api endpoing:
+ Syncing with OpenSearch service currenly is done manually in Postman (for now) by making a POST request to the following api endpoing:
 
 bash
 POST {{baseUrl}}/movies/sync/start
