@@ -66,8 +66,9 @@ $ npm run start:dev
 ## IMPORTANT NOTICE
  Syncing with OpenSearch service currenly is done manually in Postman (for now) by making a POST request to the following api endpoing:
 
-bash
+```bash
 POST {{baseUrl}}/movies/sync/start
+```
 
 ## DISCLAIMER
 - Calculating avg ratings and syncing PostgreSQL and Opensearch are done via Redis Streams.
